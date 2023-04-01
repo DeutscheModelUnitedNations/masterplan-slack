@@ -1,0 +1,37 @@
+version: "3.1"
+
+services:
+  masterplan-slack:
+    image: masterplan-slack
+    build: ./app
+    environment:
+      - GOOGLEAUTH_EMAIL=${GOOGLEAUTH_EMAIL}
+      - GOOGLEAUTH_SECRET=${GOOGLEAUTH_SECRET}
+      - SLACK_TOKEN_MUNBW=${SLACK_TOKEN_MUNBW}
+      - SLACK_TOKEN_MUNBB=${SLACK_TOKEN_MUNBB}
+      - SLACK_TOKEN_MUNSH=${SLACK_TOKEN_MUNSH}
+      - SLACK_TOKEN_DMUN=${SLACK_TOKEN_DMUN}
+      - TEST_CHANNEL_MUNBW=${TEST_CHANNEL_MUNBW}
+      - TEST_CHANNEL_MUNBB=${TEST_CHANNEL_MUNBB}
+      - TEST_CHANNEL_MUNSH=${TEST_CHANNEL_MUNSH}
+      - TEST_CHANNEL_DMUN=${TEST_CHANNEL_DMUN}
+      - DEFAULT_SHEET_MUNBW=${DEFAULT_SHEET_MUNBW}
+      - DEFAULT_SHEET_MUNBB=${DEFAULT_SHEET_MUNBB}
+      - DEFAULT_SHEET_MUNSH=${DEFAULT_SHEET_MUNSH}
+      - DEFAULT_SHEET_DMUN=${DEFAULT_SHEET_DMUN}
+    ports:
+      - 8080:8888
+#     labels:
+#       - "traefik.enable=true"
+#       - "traefik.docker.network=traefik"
+#       - "traefik.http.routers.masterplan-slack.rule=Host(`masterplan-slack.dmun.de`)"
+#       - "traefik.http.routers.masterplan-slack.entrypoints=websecure"
+#       - "traefik.http.routers.masterplan-slack.tls.certresolver=myresolver"
+#       - "traefik.http.routers.masterplan-slack.middlewares=dmun-team-auth@docker"
+#     networks:
+#       - traefik
+#     restart: unless-stopped
+
+# networks:
+#   traefik:
+#     external: true
