@@ -3,7 +3,7 @@ version: "3.1"
 services:
   masterplan-slack:
     image: masterplan-slack
-    build: ./app
+    build: .
     environment:
       - GOOGLEAUTH_EMAIL=${GOOGLEAUTH_EMAIL}
       - GOOGLEAUTH_SECRET=${GOOGLEAUTH_SECRET}
