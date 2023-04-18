@@ -4,7 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcurl4-gnutls-dev \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
-RUN install.r shiny purrr dplyr stringr magrittr data.table readxl openxlsx httr slackr listviewer reactR googlesheets4
+RUN install.r utils stat shiny purrr dplyr stringr magrittr data.table readxl openxlsx httr slackr listviewer reactR googlesheets4
 
 COPY . /usr/local/src/myscripts
 WORKDIR /usr/local/src/myscripts
