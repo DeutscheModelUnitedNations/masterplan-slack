@@ -80,6 +80,7 @@ channels<-slackr_channels()
 user_orig<-slackr_users()
 user<-as.data.table(user_orig)
 user%<>%filter(deleted==FALSE)
+age.slack<-format(Sys.time(), format = "%A, %d. %B %Y %H:%M:%S")
 
 # Define UI
 ui <- fluidPage(
@@ -88,7 +89,7 @@ ui <- fluidPage(
   img(src='dmunlogo.png', style = "float:right;margin:10px 0px"),
   # Application title
   titlePanel("DMUN TMK-Bot"),
-  textOutput("slack.status"),
+  verbatimTextOutput("slack.status"),
   actionButton("change_ws", "Workspace wechseln"),
   actionButton("google_ws", "Google-Tools"),
   flowLayout(    fileInput("orig.file",label = "Masterplan",multiple = FALSE,accept = ".xlsx",buttonLabel = "Browse",placeholder = "Bitte hier den Masterplan hochladen"),
@@ -124,7 +125,7 @@ server <- function(input, output, session) {
   slack.status<-function(){
     cur.status<-auth_test()
     if(cur.status$ok==TRUE){
-      return<-paste0("Derzeit ist eine Verbindung zum Slack-Workspace ",cur.status$team," mit dem User ",cur.status$user," hergestellt")
+      return<-paste0("Derzeit ist eine Verbindung zum Slack-Workspace ",cur.status$team," mit dem User ",cur.status$user," hergestellt.\nAlter der Slack-Daten: ",age.slack)
     }else{
       return<-paste("Derzeit ist keine Verbindung zu Slack hergestellt")
     }
@@ -182,6 +183,7 @@ server <- function(input, output, session) {
       user_orig<<-slackr_users()
       user<<-as.data.table(user_orig)
       user<<-user%>%filter(deleted==FALSE)
+      age.slack<<-format(Sys.time(), format = "%A, %d. %B %Y %H:%M:%S")
     }
 
     
@@ -327,7 +329,7 @@ server <- function(input, output, session) {
       cur.mapping.write<-cur.mapping.row[first.name.col:ncol(cur.mapping.row)]
       
       progress$inc(1/nrow(mapping.rows), detail = paste0("Mappe nun Reihe ",cur.mapping.row$rowno+1," für Gruppe ",cur.mapping.row[[mapping.col]]))
-      range_write(ss=input.google$sheet$spreadsheet_id,data=cur.mapping.write,sheet = input$map.sheet.sheet,range=(cell_limits(c(cur.mapping.row$rowno+1, first.name.sheet.col), c(cur.mapping.row$rowno+1, ncol(mapping.rows)-1))),col_names = FALSE)
+      range_write(ss=input.google$sheet$spreadsheet_id,data=cur.mapping.write,sheet = input$map.sheet.sheet,range=(cell_limits(c(cur.mapping.row$rowno+1, first.name.sheet.col), c(cur.mapping.row$rowno+1, first.name.sheet.col+ncol(cur.mapping.write)))),col_names = FALSE,reformat = FALSE)
       #Return-Nachricht schreiben
       message<-paste0(message,"Reihe ",cur.mapping.row$rowno+1," für Gruppe ",cur.mapping.row[[mapping.col]]," gemappt ")
       
