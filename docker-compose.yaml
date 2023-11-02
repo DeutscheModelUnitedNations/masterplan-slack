@@ -19,6 +19,7 @@ services:
       - DEFAULT_SHEET_MUNBB=${DEFAULT_SHEET_MUNBB}
       - DEFAULT_SHEET_MUNSH=${DEFAULT_SHEET_MUNSH}
       - DEFAULT_SHEET_DMUN=${DEFAULT_SHEET_DMUN}
+      - TZ: "Europe/Berlin"
     ports:
       - 8080:8888
 #     labels:
