@@ -63,10 +63,10 @@ test.channel<-test.channel.munbw
 
 #Hier werden die Infos zum Google-Service Login in ein JSON gepackt
 google_auth_json<-toJSON(list(type= "service_account",
-                  private_key=googleauth.secret,
-                  client_email=googleauth.email,
-                  token_uri="https://oauth2.googleapis.com/token"), 
-             auto_unbox = TRUE)
+                              private_key=googleauth.secret,
+                              client_email=googleauth.email,
+                              token_uri="https://oauth2.googleapis.com/token"), 
+                         auto_unbox = TRUE)
 #Um hier tatsächlich den Aufruf zu machen
 gs4_auth(path = google_auth_json)
 
@@ -185,7 +185,7 @@ server <- function(input, output, session) {
       user<<-user%>%filter(deleted==FALSE)
       age.slack<<-format(Sys.time(), format = "%A, %d. %B %Y %H:%M:%S")
     }
-
+    
     
     #Pop-Up schließen
     removeModal()
@@ -266,10 +266,10 @@ server <- function(input, output, session) {
     modalDialog(
       title = "Google-Mapping",
       flowLayout(
-      selectInput("map.sheet.sheet",label = "Wähle das Blatt",choices = "Bitte zuerst Excel hochladen" ),
-      selectInput("map.map.sheet",label = "Wähle das Mapping-Blatt",choices = "Bitte zuerst Excel hochladen" ),
-      selectInput("map.first.name",label = "Was ist der erste Name?",choices = "Bitte zuerst Excel hochladen" ),
-      selectInput("map.map.name",label = "Was ist die Mapping-Spalte?",choices = "Bitte zuerst Excel hochladen" )
+        selectInput("map.sheet.sheet",label = "Wähle das Blatt",choices = "Bitte zuerst Excel hochladen" ),
+        selectInput("map.map.sheet",label = "Wähle das Mapping-Blatt",choices = "Bitte zuerst Excel hochladen" ),
+        selectInput("map.first.name",label = "Was ist der erste Name?",choices = "Bitte zuerst Excel hochladen" ),
+        selectInput("map.map.name",label = "Was ist die Mapping-Spalte?",choices = "Bitte zuerst Excel hochladen" )
       ),
       div(actionButton("do_google_sheet_mapping","Mapping durchführen")),
       textOutput("mapping.status"),
@@ -357,7 +357,7 @@ server <- function(input, output, session) {
   #Hier wird das Google Sheet eingelesen und die Cols werden eingelesen und entsprechend angezeigt
   read.sheet.all<-reactive({
     if(is.null(input$orig.file)==TRUE&&input$excel.sheet!="Bitte zuerst Excel hochladen"){
-      read.sheet.all<-range_read(input.google$sheet$spreadsheet_id,sheet = input$excel.sheet)
+      read.sheet.all<-range_read(input.google$sheet$spreadsheet_id,sheet = input$excel.sheet,col_types = "c")
       col.names<-colnames(read.sheet.all)
       
       updateSelectInput(
@@ -506,7 +506,7 @@ server <- function(input, output, session) {
       for (i in 1:nrow(input.masterplan)) {
         cur.row.masterplan<-input.masterplan[i,]
         if(cur.row.masterplan$`(Teammitglieder)`==1){
-          cur.team<-colnames(cur.row.masterplan)[as.logical(unlist(cur.row.masterplan)==1)]
+          cur.team<-cur.row.masterplan %>% select(where(~ isTRUE(.x == 1))) %>% names()
           cur.team<-cur.team[!(cur.team%in%"(Teammitglieder)")]
           input.masterplan[i,"(Teammitglieder)"]<-paste0("(",paste(cur.team,sep = "", collapse = ","),")")
         }
