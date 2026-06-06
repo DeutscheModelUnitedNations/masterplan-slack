@@ -8,6 +8,9 @@ options(shiny.port = 8888)
 rm(list = ls(all.names=TRUE))
 
 library(shiny)
+library(bslib)
+library(shinyjs)
+library(stringdist)
 #library(tidyverse)
 library(purrr)
 library(dplyr)
@@ -82,29 +85,280 @@ user<-as.data.table(user_orig)
 user%<>%filter(deleted==FALSE)
 age.slack<-format(Sys.time(), format = "%A, %d. %B %Y %H:%M:%S")
 
-# Define UI
-ui <- fluidPage(
-  
-  tags$head(tags$link(rel = "shortcut icon", href = "favicon.ico")),
-  img(src='dmunlogo.png', style = "float:right;margin:10px 0px"),
-  # Application title
-  titlePanel("DMUN TMK-Bot"),
-  verbatimTextOutput("slack.status"),
-  actionButton("change_ws", "Workspace wechseln"),
-  actionButton("google_ws", "Google-Tools"),
-  flowLayout(    fileInput("orig.file",label = "Masterplan",multiple = FALSE,accept = ".xlsx",buttonLabel = "Browse",placeholder = "Bitte hier den Masterplan hochladen"),
-                 selectInput("excel.sheet",label = "Wähle das Blatt",choices = "Bitte zuerst Excel hochladen" ),
-                 selectInput("first.name",label = "Was ist der erste Name?",choices = "Bitte zuerst Excel hochladen" )),
-  actionButton("build.messages", "Erstelle die Nachrichten",width = "210px"),
-  reactjsonOutput( "final.list" , height = "80%"),
-  flowLayout(actionButton("slack.send", "Versende die Nachrichten",width = "210px"),
-             checkboxInput("test","Nachricht geht an Test-Channel",TRUE,width = "250px")),
-  textOutput("slack.output"),
-  
-  
-  
+# Hilfsfunktionen ------------------------------------------------------------
+# Namens-Matching: normalisiert (Kleinschreibung, Umlaute, Diakritika, Satzzeichen),
+# vergleicht token-sortiert per Jaro-Winkler und beruecksichtigt Teilmengen
+# (z. B. fehlende Mittelnamen / Initialen). Robuster als reines adist().
+normalize_name <- function(x) {
+  x <- as.character(x); x[is.na(x)] <- ""
+  # Code-Point-basiert -> komplett locale-unabhaengig (wichtig fuer Alpine/C-Locale).
+  # Faltet Gross->Klein, Umlaute/ss, gaengige Diakritika; alles andere -> Leerzeichen.
+  fold_one <- function(s) {
+    cps <- utf8ToInt(enc2utf8(s))
+    if (length(cps) == 0) return("")
+    pieces <- vapply(cps, function(cp) {
+      if (cp >= 65 && cp <= 90)  return(intToUtf8(cp + 32))
+      if (cp >= 97 && cp <= 122) return(intToUtf8(cp))
+      if (cp >= 48 && cp <= 57)  return(intToUtf8(cp))
+      switch(as.character(cp),
+             "228"="ae","246"="oe","252"="ue","223"="ss",
+             "196"="ae","214"="oe","220"="ue",
+             "233"="e","232"="e","234"="e","235"="e",
+             "225"="a","224"="a","226"="a","227"="a","229"="a",
+             "237"="i","236"="i","238"="i","239"="i","305"="i",
+             "243"="o","242"="o","244"="o","245"="o","248"="o",
+             "250"="u","249"="u","251"="u",
+             "241"="n","231"="c","253"="y","255"="y",
+             " ")
+    }, character(1))
+    paste(pieces, collapse = "")
+  }
+  out <- vapply(x, fold_one, character(1), USE.NAMES = FALSE)
+  out <- gsub("\\s+", " ", out)
+  trimws(out)
+}
+token_sort <- function(x) {
+  toks <- strsplit(x, " ", fixed = TRUE)[[1]]
+  toks <- toks[toks != ""]
+  paste(sort(toks), collapse = " ")
+}
+name_similarity <- function(a, b) {
+  na <- normalize_name(a); nb <- normalize_name(b)
+  if (na == "" || nb == "") return(0)
+  ta <- strsplit(na, " ", fixed = TRUE)[[1]]; ta <- ta[ta != ""]
+  tb <- strsplit(nb, " ", fixed = TRUE)[[1]]; tb <- tb[tb != ""]
+  jw <- stringdist::stringsim(token_sort(na), token_sort(nb), method = "jw", p = 0.1)
+  inter <- length(intersect(ta, tb))
+  setsim <- if (length(ta) && length(tb)) inter / max(length(ta), length(tb)) else 0
+  max(jw, setsim)
+}
+best_match <- function(name, candidates) {
+  candidates <- as.character(candidates)
+  if (length(candidates) == 0) return(list(name = NA_character_, score = 0))
+  qn <- normalize_name(name); qs <- token_sort(qn)
+  qt <- strsplit(qn, " ", fixed = TRUE)[[1]]; qt <- qt[qt != ""]
+  cn <- normalize_name(candidates)               # Kandidaten nur einmal normalisieren
+  sc <- vapply(seq_along(candidates), function(k) {
+    nb <- cn[k]
+    if (qn == "" || nb == "") return(0)
+    tb <- strsplit(nb, " ", fixed = TRUE)[[1]]; tb <- tb[tb != ""]
+    jw <- stringdist::stringsim(qs, token_sort(nb), method = "jw", p = 0.1)
+    inter <- length(intersect(qt, tb))
+    setsim <- if (length(qt) && length(tb)) inter / max(length(qt), length(tb)) else 0
+    max(jw, setsim)
+  }, numeric(1))
+  j <- which.max(sc)
+  list(name = candidates[j], score = unname(sc[j]))
+}
+match_quality <- function(score) {
+  if (is.na(score)) return("poor")
+  if (score >= 0.90) "good" else if (score >= 0.75) "weak" else "poor"
+}
+# Null/Leer-Default
+or_default <- function(a, b) {
+  if (is.null(a) || length(a) == 0) return(b)
+  if (length(a) == 1 && (is.na(a) || a == "")) return(b)
+  a
+}
+
+# Define UI -------------------------------------------------------------------
+# bslib re-skin. ALL input/output IDs are preserved exactly so the server below
+# is untouched. Server-side modalDialogs inherit this theme automatically.
+
+dmun_theme <- bs_theme(
+  version = 5,
+  primary   = "#2563A8",   # DMUN blue (from logo swoosh)
+  secondary = "#5B9BD5",
+  success   = "#2E8B57",
+  base_font = font_collection("Segoe UI", "system-ui", "-apple-system",
+                              "Helvetica Neue", "Arial", "sans-serif"),
+  "border-radius"      = "0.65rem",
+  "card-border-color"  = "rgba(0,0,0,.06)",
+  "card-cap-bg"        = "rgba(37,110,168,.06)"
 )
 
+# small helper for the numbered step badges in card headers
+step_header <- function(n, title, subtitle = NULL) {
+  div(
+    class = "d-flex align-items-center gap-2",
+    span(
+      class = "d-inline-flex justify-content-center align-items-center fw-bold",
+      style = paste0(
+        "width:26px;height:26px;border-radius:50%;",
+        "background:#2563A8;color:#fff;font-size:.85rem;flex:0 0 auto;"),
+      n
+    ),
+    div(
+      span(class = "fw-semibold", title),
+      if (!is.null(subtitle)) div(class = "text-muted small", subtitle)
+    )
+  )
+}
+
+ui <- page_sidebar(
+  theme  = dmun_theme,
+  window_title = "DMUN TMK-Bot",
+  fillable = FALSE,
+
+  useShinyjs(),
+
+  tags$head(
+    tags$link(rel = "shortcut icon", href = "favicon.ico"),
+    tags$style(HTML("
+      .tmk-status { white-space:pre-line; line-height:1.4; }
+      .card-header { font-weight:600; }
+      .tmk-result:empty { display:none; }
+      /* selectize dropdowns are re-parented to <body>; keep them above cards */
+      .selectize-dropdown { z-index: 3000 !important; }
+      .tmk-msg { white-space: pre-wrap; font-family: SFMono-Regular,Consolas,Menlo,monospace; font-size:.8rem; background:#fbfcfe; border:1px solid rgba(0,0,0,.08); border-radius:.45rem; padding:10px 12px; margin:.6rem 0 0; max-height:340px; overflow:auto; }
+      .tmk-badges .badge { font-weight:600; }
+      .tmk-dot { display:inline-block; width:.6rem; height:.6rem; border-radius:50%; background:#9aa4b2; flex:0 0 auto; }
+      .tmk-dot.on { background:#2e9e5b; box-shadow:0 0 0 .18rem rgba(46,158,91,.18); }
+      .tmk-conn { line-height:1.4; }
+    ")),
+    tags$script(HTML("
+      // Race-Fix: Beim Wechsel des Blattes blockt R waehrend des Einlesens.
+      // Der Client zeigt solange die ALTEN Spalten. Deshalb sperren wir den
+      // Namens-Dropdown sofort clientseitig (vor dem Server-Roundtrip) und
+      // geben ihn erst frei, wenn der Server die neuen Spalten gemeldet hat.
+      $(document).on('shiny:inputchanged', function(e){
+        if (e.name === 'excel.sheet') {
+          var el = document.getElementById('first.name');
+          if (el && el.selectize) { el.selectize.disable(); }
+        }
+      });
+      Shiny.addCustomMessageHandler('tmk_firstname_ready', function(x){
+        var el = document.getElementById('first.name');
+        if (el && el.selectize) { el.selectize.enable(); }
+      });
+    "))
+  ),
+
+  # ---- Title bar -----------------------------------------------------------
+  title = div(
+    class = "d-flex align-items-center justify-content-between w-100",
+    div(
+      class = "d-flex align-items-center gap-3",
+      img(src = "dmunlogo.png", height = "34px"),
+      div(
+        div(class = "fw-bold", style = "font-size:1.15rem;line-height:1.1;",
+            "TMK-Bot"),
+        div(class = "text-muted small",
+            "Personalisierte Zeitpl\u00e4ne \u00fcber Slack versenden")
+      )
+    ),
+    input_dark_mode(id = "dark_mode", mode = "light")
+  ),
+
+  # ---- Sidebar: setup ------------------------------------------------------
+  sidebar = sidebar(
+    width = 360,
+    title = "Konfiguration",
+    padding = c(12, 14),
+
+    # Step 1 - connection
+    card(
+      card_header(step_header("1", "Verbindung")),
+      card_body(
+        uiOutput("slack.status"),
+        div(
+          class = "d-grid gap-2",
+          actionButton("change_ws", "Workspace wechseln",
+                       icon = icon("right-left"),
+                       class = "btn-outline-primary btn-sm"),
+          actionButton("google_ws", "Google-Tools",
+                       icon = icon("table"),
+                       class = "btn-outline-secondary btn-sm"),
+          actionButton("refresh_slack", "Slack-Daten aktualisieren",
+                       icon = icon("rotate"),
+                       class = "btn-outline-secondary btn-sm")
+        )
+      )
+    ),
+
+    # Step 2 - data source
+    card(
+      card_header(step_header("2", "Datenquelle")),
+      card_body(
+        fileInput("orig.file", label = "Masterplan (.xlsx)",
+                  multiple = FALSE, accept = ".xlsx",
+                  buttonLabel = "Durchsuchen",
+                  placeholder = "Masterplan hochladen"),
+        helpText("Alternativ \u00fcber \"Google-Tools\" ein Sheet anbinden."),
+        # selectizeInput (not selectInput) so we can pass dropdownParent = "body".
+        # updateSelectInput() in the server still targets these correctly.
+        selectizeInput("excel.sheet", label = "Blatt w\u00e4hlen",
+                       choices = "Bitte zuerst Excel hochladen",
+                       options = list(dropdownParent = "body")),
+        selectizeInput("first.name", label = "Erste Personen-Spalte",
+                       choices = "Bitte zuerst Excel hochladen",
+                       options = list(dropdownParent = "body"))
+      )
+    )
+  ),
+
+  # ---- Main: build, review, send ------------------------------------------
+  layout_columns(
+    col_widths = 12,
+    gap = "1rem",
+
+    # Step 3 - build + preview
+    card(
+      card_header(
+        step_header("3", "Nachrichten erstellen & pr\u00fcfen",
+                    "Treffer pr\u00fcfen, Empf\u00e4nger ggf. korrigieren, dann versenden.")
+      ),
+      card_body(
+        min_height = "540px",
+        div(
+          class = "d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2",
+          div(
+            class = "d-flex align-items-center gap-3 flex-wrap",
+            shinyjs::disabled(
+              actionButton("exclude_empty", "Leere Zeitpl\u00e4ne ausschlie\u00dfen",
+                           icon = icon("eraser"),
+                           class = "btn-outline-secondary btn-sm")
+            )
+          ),
+          shinyjs::disabled(
+            actionButton("build.messages", "Nachrichten erstellen",
+                         icon = icon("wand-magic-sparkles"),
+                         class = "btn-primary")
+          )
+        ),
+        uiOutput("messages_ui")
+      )
+    ),
+
+    # Step 4 - send
+    card(
+      card_header(step_header("4", "Versenden")),
+      card_body(
+        layout_columns(
+          col_widths = c(7, 5),
+          class = "align-items-center",
+          div(
+            checkboxInput("test", "An Test-Channel senden (kein Versand an echte User)",
+                          value = TRUE),
+            div(class = "text-muted small",
+                "Test-Schalter zuerst ausschalten, um wirklich zu versenden.")
+          ),
+          div(
+            class = "d-grid",
+            shinyjs::disabled(
+              actionButton("slack.send", "Nachrichten versenden",
+                           icon = icon("paper-plane"),
+                           class = "btn-success btn-lg")
+            )
+          )
+        ),
+        div(class = "tmk-result alert alert-info mt-3 mb-0",
+            role = "status",
+            textOutput("slack.output"))
+      )
+    )
+  )
+)
 
 server <- function(input, output, session) {
   ##Hier werden 2 Variablen definiert, welche global geändert werden können
@@ -120,22 +374,59 @@ server <- function(input, output, session) {
   mapping.status.message<-reactiveValues(msg=NULL)
   #init
   input.google<-reactiveValues(sheet=NULL)
+
+  # --- UI-Gating: Buttons erst freischalten, wenn der vorherige Schritt erledigt ist
+  # "Nachrichten erstellen": erst aktiv, wenn eine Datenquelle geladen und die
+  # erste Personen-Spalte gewaehlt wurde (first.name ist dann keine Platzhalter-Zeile).
+  observe({
+    shinyjs::toggleState(
+      "build.messages",
+      condition = isTruthy(input$first.name) &&
+        input$first.name != "Bitte zuerst Excel hochladen"
+    )
+  })
+  # "Nachrichten versenden": erst aktiv, wenn Nachrichten erzeugt wurden.
+  observe({
+    shinyjs::toggleState(
+      "slack.send",
+      condition = !is_empty(variables$final.list)
+    )
+  })
   
   #Hier wird die Slack-Status-Nachricht erstellt
   slack.status<-function(){
     cur.status<-auth_test()
-    if(cur.status$ok==TRUE){
-      return<-paste0("Derzeit ist eine Verbindung zum Slack-Workspace ",cur.status$team," mit dem User ",cur.status$user," hergestellt.\nAlter der Slack-Daten: ",age.slack)
-    }else{
-      return<-paste("Derzeit ist keine Verbindung zu Slack hergestellt")
-    }
-    return(return)
+    list(
+      connected = isTRUE(cur.status$ok),
+      team      = if (isTRUE(cur.status$ok)) cur.status$team else NA_character_,
+      user      = if (isTRUE(cur.status$ok)) cur.status$user else NA_character_,
+      age       = age.slack
+    )
   }
   slack.status.message$msg<-slack.status()
   #Und hier gerendert
-  output$slack.status<-renderText({
-    
-    slack.status.message$msg
+  output$slack.status<-renderUI({
+    info <- slack.status.message$msg
+    if (is.null(info)) return(NULL)
+    if (isTRUE(info$connected)) {
+      div(
+        class = "tmk-conn",
+        div(class = "d-flex align-items-center gap-2 mb-1",
+            span(class = "tmk-dot on"),
+            span(class = "fw-semibold", "Verbunden")),
+        div(class = "small",
+            "Workspace ", strong(info$team), " · User ", strong(info$user)),
+        div(class = "small text-muted",
+            paste0("Daten aktualisiert: ", info$age))
+      )
+    } else {
+      div(
+        class = "tmk-conn",
+        div(class = "d-flex align-items-center gap-2",
+            span(class = "tmk-dot off"),
+            span(class = "fw-semibold", "Nicht verbunden"))
+      )
+    }
   })
   
   #Hier ist die Logik zum wechseln des Workspaces hinterlegt
@@ -367,6 +658,8 @@ server <- function(input, output, session) {
         choices = col.names,
         selected = NULL
       )
+      # Spalten stehen -> Namens-Dropdown wieder freigeben (siehe JS im head)
+      session$sendCustomMessage("tmk_firstname_ready", TRUE)
       return(read.sheet.all)
     }
     
@@ -445,6 +738,8 @@ server <- function(input, output, session) {
         choices = col.names,
         selected = NULL
       )
+      # Spalten stehen -> Namens-Dropdown wieder freigeben (siehe JS im head)
+      session$sendCustomMessage("tmk_firstname_ready", TRUE)
       return(read.excel.all)
     }
     
@@ -526,15 +821,24 @@ server <- function(input, output, session) {
       cur.col.relevant<-cur.col[cur.col[last.head.col.num+1]==1,]
       setDT(cur.col.relevant)
       cur.message<-rbind(as.list(names(cur.col.relevant)),cur.col.relevant)
-      distance<-adist(cur.recipient,user[,real_name])
-      pos.minimum<-which.min(distance)
-      likly.slack.user<-user[pos.minimum]
+      #Bestes Slack-Match per normalisiertem Namensvergleich (best_match oben)
+      bm<-best_match(cur.recipient, user[,real_name])
       cur.message<-cur.message[,1:last.head.col.num]
-      slack.message_head<-capture.output(write.table(c(paste0("Zeitplan für ", likly.slack.user$real_name),paste0( "Tag: ",input$excel.sheet)),"",quote = FALSE, row.names = FALSE, na="-", sep="\t",append = TRUE, col.names = FALSE))
+      #Kopfzeile nutzt den Namen aus dem Masterplan (unabhaengig vom Slack-Treffer)
+      slack.message_head<-capture.output(write.table(c(paste0("Zeitplan für ", cur.recipient),paste0( "Tag: ",input$excel.sheet)),"",quote = FALSE, row.names = FALSE, na="-", sep="\t",append = TRUE, col.names = FALSE))
       slack.message_head<-paste0(slack.message_head,collapse = "\n")
       slack.message_body<-capture.output(write.table(cur.message[,1:last.head.col.num],"",quote = FALSE, row.names = FALSE, na="-", sep="\t",append = TRUE, col.names = FALSE))
       slack.message_body<-paste0(slack.message_body,collapse = "\n")
-      output.list[[cur.recipient]]<-list(name.excel=as.character(cur.recipient),name.slack=as.character(likly.slack.user$real_name),message.head=as.character(slack.message_head),message.body=as.character(slack.message_body))
+      output.list[[cur.recipient]]<-list(
+        name.excel    = as.character(cur.recipient),
+        name.slack    = as.character(bm$name),
+        match.score   = bm$score,
+        match.quality = match_quality(bm$score),
+        n.items       = nrow(cur.col.relevant),
+        include       = TRUE,
+        message.head  = as.character(slack.message_head),
+        message.body  = as.character(slack.message_body)
+      )
       
     }
     
@@ -544,82 +848,194 @@ server <- function(input, output, session) {
     return(output.list)
   })
   
-  #Hier wird die Json-Liste gerendert
-  output$final.list <- renderReactjson({
-    variables$final.list
-    if(is_empty(variables$final.list)==FALSE){
-      reactjson( as.list(variables$final.list) )
+  # ---- Nachrichten-Vorschau (ersetzt den frueheren JSON-Editor) ------------
+  # Pro Empfaenger: Treffer-Guete, korrigierbarer Slack-Empfaenger, Senden-Schalter
+  # und lesbare Vorschau (reagiert auf das Format).
+  output$messages_ui <- renderUI({
+    fl <- variables$final.list
+    if (is_empty(fl)) {
+      return(div(class = "text-muted",
+                 "Noch keine Nachrichten erstellt. Datenquelle laden und auf \u201eNachrichten erstellen\u201c klicken."))
     }
-    
-    
+    all.users <- sort(unique(as.character(user[, real_name])))
+    cards <- lapply(seq_along(fl), function(i) {
+      e <- fl[[i]]
+      # Auswahl beibehalten (isolate), damit ein Re-Render Korrekturen nicht zuruecksetzt
+      sel <- or_default(isolate(input[[paste0("slackpick_", i)]]), e$name.slack)
+      inc <- isolate(input[[paste0("include_", i)]])
+      if (is.null(inc)) inc <- isTRUE(e$include)
+      badge <- switch(e$match.quality,
+                      good = span(class = "badge bg-success", "Sicher"),
+                      weak = span(class = "badge bg-warning text-dark", "Unsicher"),
+                      poor = span(class = "badge bg-danger", "Kein guter Treffer"),
+                      span(class = "badge bg-secondary", "?"))
+      empty.badge <- if (isTRUE(e$n.items == 0))
+        span(class = "badge bg-secondary ms-1", "Leerer Zeitplan") else NULL
+      preview.txt <- paste(c(e$message.head, e$message.body), collapse = "\n")
+      card(
+        class = "mb-2",
+        card_body(
+          div(class = "d-flex justify-content-between align-items-start gap-2 flex-wrap tmk-badges",
+              div(
+                div(class = "fw-semibold", e$name.excel),
+                div(class = "small text-muted",
+                    paste0("Bester Treffer: ", e$name.slack,
+                           "  \u00b7  ", round(e$match.score * 100), "% \u00c4hnlichkeit"))
+              ),
+              div(badge, empty.badge)
+          ),
+          layout_columns(
+            col_widths = c(8, 4), class = "mt-2 align-items-end",
+            selectizeInput(paste0("slackpick_", i), "Slack-Empf\u00e4nger",
+                           choices = all.users, selected = sel,
+                           options = list(dropdownParent = "body")),
+            div(class = "pb-2",
+                checkboxInput(paste0("include_", i), "Senden", value = inc))
+          ),
+          tags$pre(class = "tmk-msg", preview.txt)
+        )
+      )
+    })
+    tagList(cards)
   })
-  ##Der hier ist verantwortlich, dass die Änderungen im Json auch zurückgeschrieben werden. 
-  observeEvent(input$final.list_edit, {
-    str(input$final.list_edit, max.level=2)
-    variables$final.list<-input$final.list_edit$value$updated_src
+
+  # "Leere Zeitplaene ausschliessen": Senden-Haken der leeren auf FALSE
+  observeEvent(input$exclude_empty, {
+    fl <- variables$final.list
+    for (i in seq_along(fl)) {
+      if (isTRUE(fl[[i]]$n.items == 0)) {
+        updateCheckboxInput(session, paste0("include_", i), value = FALSE)
+      }
+    }
   })
-  ##Der hier ist verantwortlich, dass die Löschungen im Json auch zurückgeschrieben werden. 
-  observeEvent(input$final.list_delete, {
-    str(input$final.list_delete, max.level=2)
-    variables$final.list<-input$final.list_delete$value$updated_src
+  observe({
+    fl <- variables$final.list
+    has.empty <- !is_empty(fl) &&
+      any(vapply(fl, function(e) isTRUE(e$n.items == 0), logical(1)))
+    shinyjs::toggleState("exclude_empty", condition = has.empty)
   })
-  #Der hier verschickt die Liste nach dem Button
-  build.slack.messages<-observeEvent(input$slack.send,{
-    #Init Variablen
-    payload<-list()
-    err.payload<-list()
-    err.payload.name<-NULL
-    #Init Progress-Bar
+
+  # Slack-Daten (User/Channels) neu laden, ohne Workspace zu wechseln
+  observeEvent(input$refresh_slack, {
+    cur.status <- auth_test()
+    if (isTRUE(cur.status$ok)) {
+      progress <- shiny::Progress$new()
+      progress$set(message = "Slack-Daten werden aktualisiert", value = 0.5)
+      try({
+        channels  <<- slackr_channels()
+        user_orig <<- slackr_users()
+        user      <<- as.data.table(user_orig)
+        user      <<- user %>% filter(deleted == FALSE)
+        age.slack <<- format(Sys.time(), format = "%A, %d. %B %Y %H:%M:%S")
+      }, silent = TRUE)
+      progress$close()
+    }
+    slack.status.message$msg <- slack.status()
+  })
+
+  # ---- Versand ------------------------------------------------------------
+  # Indizes der zu sendenden Eintraege (Senden-Haken aktiv)
+  included_idx <- function() {
+    fl <- variables$final.list
+    if (is_empty(fl)) return(integer(0))
+    which(vapply(seq_along(fl), function(i) {
+      inc <- input[[paste0("include_", i)]]
+      if (is.null(inc)) isTRUE(fl[[i]]$include) else isTRUE(inc)
+    }, logical(1)))
+  }
+  # Aktuell gewaehlter Slack-Empfaenger (Korrektur oder bester Treffer)
+  chosen_recipient <- function(i) {
+    or_default(input[[paste0("slackpick_", i)]], variables$final.list[[i]]$name.slack)
+  }
+
+  # Bestaetigungs-Dialog bei ECHTEM Versand (Test-Schalter aus)
+  confirm_send_modal <- function() {
+    fl  <- variables$final.list
+    idx <- included_idx()
+    sub <- fl[idx]
+    qual <- vapply(sub, function(e) e$match.quality, character(1))
+    g <- sum(qual == "good"); w <- sum(qual == "weak"); p <- sum(qual == "poor")
+    empt <- sum(vapply(sub, function(e) isTRUE(e$n.items == 0), logical(1)))
+    modalDialog(
+      title = "Echte Nachrichten versenden?",
+      p(strong(length(idx)), " Nachricht(en) gehen an echte Slack-User \u2013 nicht an den Test-Channel."),
+      tags$ul(
+        tags$li(paste0(g, " sichere Treffer")),
+        tags$li(paste0(w, " unsichere Treffer")),
+        tags$li(paste0(p, " ohne guten Treffer")),
+        tags$li(paste0(empt, " mit leerem Zeitplan"))
+      ),
+      if (p > 0) div(class = "alert alert-warning mb-0",
+                     "Es gibt Empf\u00e4nger ohne guten Namens-Treffer. Bitte oben pr\u00fcfen \u2013 diese k\u00f6nnten an die falsche Person gehen."),
+      footer = tagList(
+        modalButton("Abbrechen"),
+        actionButton("confirm_send", "Senden best\u00e4tigen", class = "btn-danger")
+      ),
+      easyClose = FALSE
+    )
+  }
+
+  # Eigentlicher Versand
+  do_send <- function() {
+    fl  <- variables$final.list
+    idx <- included_idx()
+    if (length(idx) == 0) {
+      slack.output.message$msg <- "Es sind keine Empf\u00e4nger zum Senden ausgew\u00e4hlt."
+      return(invisible(NULL))
+    }
+    errs <- character(0)
+    n.sent <- 0L
     progress <- shiny::Progress$new()
     progress$set(message = "Sende Nachricht", value = 0)
-    edited.list<-variables$final.list
-    for (i in 1:length(edited.list)) {
-      cur.entry<-edited.list[[i]]
-      
-      slack.user.id<-user[real_name==cur.entry$name.slack,id]
-      #hier wird die User-Id durch die am anfang definierte überschrieben, wenn der Button auf True ist
-      if(input$test==TRUE){
-        slack.user.id<-test.channel
-      }
-      
-      slack.message<-c(cur.entry$message.head,cur.entry$message.body)
-      #im Payload wird einfach die Rückmeldung von Slack gespeichert
-      progress$inc(1/length(edited.list), detail = paste0("Verschicke nun Nachricht ",i," von ",length(edited.list), " für ", cur.entry$name.slack))
-      payload[[cur.entry$name.slack]]<-slackr_msg(
-        txt = slack.message,
-        channel = slack.user.id,
-        as_user=TRUE
-      )
-      cur.payload<-payload[[cur.entry$name.slack]]
-      #Hier wird geschaut, ob es Fehler beim Senden gab
-      if(cur.payload[['ok']]==FALSE){
-        err.payload[names(payload)[i]]<-list(payload[[i]])
-        
-        err.payload.name<-c(err.payload.name,names(payload)[i])
-      }
+    on.exit(progress$close())
+    for (k in seq_along(idx)) {
+      i <- idx[k]
+      cur.entry <- fl[[i]]
+      chosen <- chosen_recipient(i)
+      slack.user.id <- user[real_name == chosen, id][1]
+      if (isTRUE(input$test)) slack.user.id <- test.channel
+      slack.message <- c(cur.entry$message.head, cur.entry$message.body)
+      progress$inc(1 / length(idx),
+                   detail = paste0("Verschicke ", k, " von ", length(idx), " f\u00fcr ", chosen))
+      cur.payload <- slackr_msg(txt = slack.message, channel = slack.user.id, as_user = TRUE)
+      n.sent <- n.sent + 1L
+      if (!isTRUE(cur.payload[['ok']])) errs <- c(errs, chosen)
     }
-    #Hier wird die Return-Nachricht generiert
-    cur.time<-format(Sys.time(),"%H:%M:%S")
-    #Hole die aktuelle Zeit von einer API, weil die Serverzeit ist nicht relevant
-    cur.time.API<-content(GET("https://timeapi.io/api/Time/current/zone?timeZone=Europe/Berlin"))
-    cur.time<-substr(cur.time.API$dateTime,12,19)
-    
-    if(length(err.payload)>0){
-      slack.output.message$msg<-paste0("Es gab gerade ", cur.time ," ein Fehler beim Versenden von ",length(err.payload) ," Nachrichten von ", paste(err.payload.name,sep = " ",collapse = ","), " die restlichen ", length(payload)-length(err.payload)," Nachrichten wurden versendet")
-    }else{
-      
-      if(cur.time>"23:00:00"||cur.time<"06:00:00"){
-        slack.output.message$msg<-paste0("Herzlichen Glückwunsch es wurden nun (",cur.time,") ",length(payload)," Nachrichten verschickt. Jetzt darfst du beruhigt ins Bett gehen :)")
-      }else if (cur.time>"20:00:00"){
-        slack.output.message$msg<-paste0("Herzlichen Glückwunsch es wurden nun (",cur.time,") ",length(payload)," Nachrichten verschickt. Jetzt hast du dir ein Bier verdient.")
-      }else{
-        slack.output.message$msg<-paste0("Herzlichen Glückwunsch es wurden nun (",cur.time,") ",length(payload)," Nachrichten verschickt.")
-      }
-      
+    # Lokale Zeit (Europe/Berlin) statt externer API
+    cur.time <- format(Sys.time(), "%H:%M:%S", tz = "Europe/Berlin")
+    if (length(errs) > 0) {
+      slack.output.message$msg <- paste0(
+        "Es gab gerade ", cur.time, " einen Fehler beim Versenden von ", length(errs),
+        " Nachricht(en) (", paste(errs, collapse = ", "), "). Die \u00fcbrigen ",
+        n.sent - length(errs), " wurden versendet.")
+    } else if (cur.time > "23:00:00" || cur.time < "06:00:00") {
+      slack.output.message$msg <- paste0(
+        "Herzlichen Gl\u00fcckwunsch, es wurden nun (", cur.time, ") ", n.sent,
+        " Nachrichten verschickt. Jetzt darfst du beruhigt ins Bett gehen :)")
+    } else if (cur.time > "20:00:00") {
+      slack.output.message$msg <- paste0(
+        "Herzlichen Gl\u00fcckwunsch, es wurden nun (", cur.time, ") ", n.sent,
+        " Nachrichten verschickt. Jetzt hast du dir ein Bier verdient.")
+    } else {
+      slack.output.message$msg <- paste0(
+        "Herzlichen Gl\u00fcckwunsch, es wurden nun (", cur.time, ") ", n.sent,
+        " Nachrichten verschickt.")
     }
-    
-    
+  }
+
+  # Klick auf "Versenden": Test -> direkt, echt -> erst Bestaetigung
+  observeEvent(input$slack.send, {
+    if (isTRUE(input$test)) {
+      do_send()
+    } else {
+      showModal(confirm_send_modal())
+    }
   })
+  observeEvent(input$confirm_send, {
+    removeModal()
+    do_send()
+  })
+
   #Hier wird die Return-Nachricht gerendert
   output$slack.output<-renderText({
     slack.output.message$msg

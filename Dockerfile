@@ -1,4 +1,4 @@
-FROM rhub/r-minimal@sha256:4d464d12989b9259186f1d05a96629a9a4757d4c033a3e8da8fd22d1926b826d
+FROM rhub/r-minimal@sha256:f17af8b07fce2802092cdbbeab7975116ac759ae0c714d1a357ffe65c257f984
 
 
 RUN apk update
@@ -7,7 +7,7 @@ RUN apk add curl-dev
 #    libcurl4-gnutls-dev \
 #    libssl-dev \
 #    && rm -rf /var/lib/apl/lists/*
-RUN installr -d shiny purrr dplyr stringr magrittr data.table readxl openxlsx httr slackr listviewer reactR googlesheets4
+RUN installr -d shiny bslib shinyjs stringdist purrr dplyr stringr magrittr data.table readxl openxlsx httr slackr listviewer reactR googlesheets4
 
 COPY . /usr/local/src/myscripts
 WORKDIR /usr/local/src/myscripts
