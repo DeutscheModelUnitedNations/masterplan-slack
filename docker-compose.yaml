@@ -25,16 +25,6 @@ services:
       - 8080:8888
     depends_on:
       - mysql
-  #     labels:
-  #       - "traefik.enable=true"
-  #       - "traefik.docker.network=traefik"
-  #       - "traefik.http.routers.masterplan-slack.rule=Host(`masterplan-slack.dmun.de`)"
-  #       - "traefik.http.routers.masterplan-slack.entrypoints=websecure"
-  #       - "traefik.http.routers.masterplan-slack.tls.certresolver=myresolver"
-  #       - "traefik.http.routers.masterplan-slack.middlewares=dmun-team-auth@docker"
-  #     networks:
-  #       - traefik
-  #     restart: unless-stopped
 
   mysql:
     image: mysql:8.4
@@ -45,11 +35,6 @@ services:
       - MYSQL_PASSWORD=${DB_PASSWORD}
     volumes:
       - masterplan-mysql:/var/lib/mysql
-#     restart: unless-stopped
 
 volumes:
   masterplan-mysql:
-
-# networks:
-#   traefik:
-#     external: true

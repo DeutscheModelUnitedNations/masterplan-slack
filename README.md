@@ -13,13 +13,15 @@ eingeloggten Nutzer sehen ausschließlich ihren eigenen Zeitplan.
 
 1. **Personen anlegen** – Name, optional eine E-Mail zur eindeutigen
    Zuordnung.
-2. **Tage & Programmpunkte pflegen** – pro Tag eine Liste von Punkten
-   (Uhrzeit, Programmpunkt, Ort) und wer daran teilnimmt.
-3. **Pro Person eine Nachricht bauen** – aus allen Programmpunkten, denen die
+2. **Locations & Gruppen pflegen** – Orte mit Koordinaten (Karte auf
+   OpenStreetMap-Basis) und Personen-Gruppen zum Bulk-Zuordnen.
+3. **Tage & Programmpunkte pflegen** – pro Tag eine Liste von Punkten
+   (Uhrzeit, Programmpunkt, Location) und wer daran teilnimmt.
+4. **Pro Person eine Nachricht bauen** – aus allen Programmpunkten, denen die
    jeweilige Person zugeordnet ist.
-4. **Slack-Empfänger zuordnen** – über einen Namens-Abgleich, mit Anzeige der
+5. **Slack-Empfänger zuordnen** – über einen Namens-Abgleich, mit Anzeige der
    Treffergüte und manueller Korrekturmöglichkeit.
-5. **Versenden** – als Slack-DM an die echten Nutzer oder testweise an einen
+6. **Versenden** – als Slack-DM an die echten Nutzer oder testweise an einen
    Test-Channel.
 
 Nicht-Admins sehen beim Login stattdessen nur eine schreibgeschützte Ansicht
@@ -96,6 +98,19 @@ Die App kann zwischen vier Slack-Workspaces wechseln: **MUNBW**, **MUNBB**,
 **MUN-SH** und **DMUN**. Beim Wechsel werden Token und Test-Channel des
 jeweiligen Workspace übernommen.
 
+### Locations mit Karte
+Locations haben einen Namen und optional eine Koordinate (Klick auf die
+Karte beim Anlegen). Ist ein Programmpunkt mit einer Location verknüpft,
+sehen sowohl Admins (im Editor) als auch die betroffenen Personen (im
+eigenen Zeitplan) eine kleine OpenStreetMap-Karte mit Marker dazu – keine
+API-Keys nötig, die Kartenkacheln kommen direkt von OSM.
+
+### Gruppen
+Gruppen sind nur ein Zuordnungs-Werkzeug: eine benannte Menge von Personen,
+die sich beim Bearbeiten eines Programmpunkts mit einem Klick komplett
+hinzufügen lässt, statt jede Person einzeln anzuhaken. Einzelne Personen
+lassen sich danach trotzdem noch abwählen.
+
 ---
 
 ## Slack-API-Token erstellen
@@ -134,12 +149,25 @@ ausschließlich als Umgebungsvariable setzen.
 ## Starten
 
 ```bash
+cp .env.example .env   # ausfuellen
 docker compose up --build
 ```
 
-Startet die App **und** eine MySQL-Datenbank (Volume `masterplan-mysql`).
-Die App ist unter `http://localhost:8080` erreichbar. Zugangsdaten vorher
-als Umgebungsvariablen bzw. in einer `.env` setzen.
+Startet die App **und** eine MySQL-Datenbank (Volume `masterplan-mysql`) für
+lokales Testen. Die App ist unter `http://localhost:8080` erreichbar. Diese
+`docker-compose.yaml` ist bewusst ohne Traefik gehalten, damit sie überall
+einfach hochfährt.
+
+### Echtes Deployment (hinter Traefik)
+
+Die Traefik-Labels (Middleware `dmun-team-auth`, Host-Regel, TLS) liegen in
+einem eigenen Overlay, das nur beim scharfen Deployment dazukommt:
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.prod.yaml up -d --build
+```
+
+Setzt ein extern erreichbares `traefik`-Docker-Netzwerk voraus.
 
 ### Lokale Entwicklung
 
@@ -148,10 +176,11 @@ npm install
 npm run dev
 ```
 
-Braucht eine erreichbare MySQL-Instanz (Env-Vars s. o.) sowie – um Admin-
-bzw. Nutzeransicht zu testen – einen `X-Forwarded-User`-Header, den man ohne
-die vorgeschaltete Traefik-Middleware z. B. per Browser-Extension (etwa
-ModHeader) oder per `curl` setzt.
+Braucht eine erreichbare MySQL-Instanz (Env-Vars s. o., z. B. per
+`docker compose up mysql`) sowie – um Admin- bzw. Nutzeransicht zu testen –
+einen `X-Forwarded-User`-Header, den man ohne die vorgeschaltete
+Traefik-Middleware z. B. per Browser-Extension (etwa ModHeader) oder per
+`curl` setzt.
 
 ---
 

@@ -1,0 +1,27 @@
+# Overlay fuer den echten Betrieb hinter Traefik. Testen/lokal laeuft weiter
+# ganz normal mit "docker compose up", das hier ist nur fuers scharfe Deployment:
+#
+#   docker compose -f docker-compose.yaml -f docker-compose.prod.yaml up -d --build
+#
+version: "3.1"
+
+services:
+  masterplan-slack:
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      - "traefik.http.routers.masterplan-slack.rule=Host(`masterplan-slack.dmun.de`)"
+      - "traefik.http.routers.masterplan-slack.entrypoints=websecure"
+      - "traefik.http.routers.masterplan-slack.tls.certresolver=myresolver"
+      - "traefik.http.routers.masterplan-slack.middlewares=dmun-team-auth@docker"
+    networks:
+      - default
+      - traefik
+
+  mysql:
+    restart: unless-stopped
+
+networks:
+  traefik:
+    external: true
