@@ -14,6 +14,36 @@
 	let saving = $state(false);
 	let showPicker = $state(false);
 
+	interface GeocodeResult {
+		name: string;
+		lat: number;
+		lng: number;
+	}
+	let addressQuery = $state('');
+	let searchResults = $state<GeocodeResult[]>([]);
+	let searching = $state(false);
+
+	async function searchAddress() {
+		if (addressQuery.trim().length < 3) return;
+		searching = true;
+		try {
+			const res = await fetch(`/api/geocode?q=${encodeURIComponent(addressQuery.trim())}`);
+			const data = await res.json();
+			searchResults = data.results;
+		} finally {
+			searching = false;
+		}
+	}
+
+	function pickResult(r: GeocodeResult) {
+		newLat = r.lat;
+		newLng = r.lng;
+		if (!newName.trim()) newName = r.name.split(',')[0];
+		searchResults = [];
+		addressQuery = '';
+		showPicker = true;
+	}
+
 	async function addLocation() {
 		if (!newName.trim() || !conferenceId) return;
 		saving = true;
@@ -63,20 +93,63 @@
 			{/each}
 		</div>
 
-		<div class="flex gap-2">
+		<fieldset class="fieldset">
+			<legend class="fieldset-legend">Name</legend>
 			<input
-				class="input input-bordered input-sm flex-1"
-				placeholder="Name, z.B. Plenarsaal"
+				class="input input-bordered input-sm w-full"
+				placeholder="z.B. Plenarsaal"
 				bind:value={newName}
 				disabled={!conferenceId}
 			/>
+		</fieldset>
+
+		<fieldset class="fieldset">
+			<legend class="fieldset-legend">Adresse suchen (OpenStreetMap)</legend>
+			<div class="flex gap-2">
+				<input
+					class="input input-bordered input-sm flex-1"
+					placeholder="z.B. Rathausplatz 1, Stuttgart"
+					bind:value={addressQuery}
+					disabled={!conferenceId}
+					onkeydown={(e) => e.key === 'Enter' && searchAddress()}
+				/>
+				<button
+					class="btn btn-outline btn-sm"
+					onclick={searchAddress}
+					disabled={!conferenceId || searching || addressQuery.trim().length < 3}
+					aria-label="Adresse suchen"
+				>
+					{#if searching}
+						<span class="loading loading-spinner loading-xs"></span>
+					{:else}
+						<i class="fa-solid fa-magnifying-glass"></i>
+					{/if}
+				</button>
+			</div>
+		</fieldset>
+
+		{#if searchResults.length > 0}
+			<div class="flex flex-col gap-1 border border-base-300 rounded-lg p-2 max-h-40 overflow-auto">
+				{#each searchResults as r (r.name)}
+					<button
+						type="button"
+						class="text-left text-xs hover:bg-base-200 rounded p-1 truncate"
+						onclick={() => pickResult(r)}
+					>
+						{r.name}
+					</button>
+				{/each}
+			</div>
+		{/if}
+
+		<div class="flex items-center justify-between">
 			<button
-				class="btn btn-outline btn-sm"
+				class="btn btn-ghost btn-xs"
 				onclick={() => (showPicker = !showPicker)}
-				aria-label="Karte zum Setzen der Koordinate anzeigen"
 				disabled={!conferenceId}
 			>
 				<i class="fa-solid fa-map-location-dot"></i>
+				{showPicker ? 'Karte ausblenden' : 'Koordinate stattdessen auf Karte setzen'}
 			</button>
 			<button
 				class="btn btn-primary btn-sm"
