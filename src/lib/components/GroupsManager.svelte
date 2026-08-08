@@ -1,19 +1,24 @@
 <script lang="ts">
 	import type { Group, Person } from '$lib/types';
 
-	let { groups, people, reload }: { groups: Group[]; people: Person[]; reload: () => void } = $props();
+	let {
+		groups,
+		people,
+		conferenceId,
+		reload
+	}: { groups: Group[]; people: Person[]; conferenceId: number | null; reload: () => void } = $props();
 
 	let newName = $state('');
 	let saving = $state(false);
 	let expandedId = $state<number | null>(null);
 
 	async function addGroup() {
-		if (!newName.trim()) return;
+		if (!newName.trim() || !conferenceId) return;
 		saving = true;
 		await fetch('/api/groups', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ name: newName.trim() })
+			body: JSON.stringify({ conferenceId, name: newName.trim() })
 		});
 		newName = '';
 		saving = false;
@@ -82,16 +87,23 @@
 					{/if}
 				</div>
 			{:else}
-				<p class="text-sm text-base-content/60">Noch keine Gruppen angelegt.</p>
+				<p class="text-sm text-base-content/60">
+					{conferenceId ? 'Noch keine Gruppen angelegt.' : 'Erst eine Konferenz auswählen.'}
+				</p>
 			{/each}
 		</div>
 
 		<div class="flex gap-2">
-			<input class="input input-bordered input-sm flex-1" placeholder="Name, z.B. GV" bind:value={newName} />
+			<input
+				class="input input-bordered input-sm flex-1"
+				placeholder="Name, z.B. GV"
+				bind:value={newName}
+				disabled={!conferenceId}
+			/>
 			<button
 				class="btn btn-primary btn-sm"
 				onclick={addGroup}
-				disabled={saving || !newName.trim()}
+				disabled={saving || !newName.trim() || !conferenceId}
 				aria-label="Gruppe hinzufügen"
 			>
 				<i class="fa-solid fa-plus"></i>

@@ -1,7 +1,11 @@
 <script lang="ts">
 	import type { Person } from '$lib/types';
 
-	let { people, reload }: { people: Person[]; reload: () => void } = $props();
+	let {
+		people,
+		conferenceId,
+		reload
+	}: { people: Person[]; conferenceId: number | null; reload: () => void } = $props();
 
 	let newName = $state('');
 	let newEmail = $state('');
@@ -12,12 +16,12 @@
 	let editEmail = $state('');
 
 	async function addPerson() {
-		if (!newName.trim()) return;
+		if (!newName.trim() || !conferenceId) return;
 		saving = true;
 		await fetch('/api/people', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ name: newName.trim(), email: newEmail.trim() || null })
+			body: JSON.stringify({ conferenceId, name: newName.trim(), email: newEmail.trim() || null })
 		});
 		newName = '';
 		newEmail = '';
@@ -85,17 +89,24 @@
 					{/if}
 				</div>
 			{:else}
-				<p class="text-sm text-base-content/60">Noch keine Personen angelegt.</p>
+				<p class="text-sm text-base-content/60">
+					{conferenceId ? 'Noch keine Personen angelegt.' : 'Erst eine Konferenz auswählen.'}
+				</p>
 			{/each}
 		</div>
 
 		<div class="flex gap-2">
-			<input class="input input-bordered input-sm flex-1" placeholder="Name" bind:value={newName} />
-			<input class="input input-bordered input-sm flex-1" placeholder="E-Mail (optional)" bind:value={newEmail} />
+			<input class="input input-bordered input-sm flex-1" placeholder="Name" bind:value={newName} disabled={!conferenceId} />
+			<input
+				class="input input-bordered input-sm flex-1"
+				placeholder="E-Mail (optional)"
+				bind:value={newEmail}
+				disabled={!conferenceId}
+			/>
 			<button
 				class="btn btn-primary btn-sm"
 				onclick={addPerson}
-				disabled={saving || !newName.trim()}
+				disabled={saving || !newName.trim() || !conferenceId}
 				aria-label="Person hinzufügen"
 			>
 				<i class="fa-solid fa-plus"></i>

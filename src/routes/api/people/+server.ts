@@ -1,15 +1,21 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import { requireAdmin } from '$lib/server/auth';
 import { createPerson, listPeople } from '$lib/server/schedule';
 
-export async function GET({ locals }) {
+export async function GET({ url, locals }) {
 	requireAdmin(locals);
-	return json({ people: await listPeople() });
+	const conferenceId = Number(url.searchParams.get('conferenceId'));
+	if (!conferenceId) error(400, 'conferenceId fehlt.');
+	return json({ people: await listPeople(conferenceId) });
 }
 
 export async function POST({ request, locals }) {
 	requireAdmin(locals);
-	const { name, email } = (await request.json()) as { name: string; email: string | null };
-	const person = await createPerson(name.trim(), email?.trim() || null);
+	const { conferenceId, name, email } = (await request.json()) as {
+		conferenceId: number;
+		name: string;
+		email: string | null;
+	};
+	const person = await createPerson(conferenceId, name.trim(), email?.trim() || null);
 	return json({ person });
 }

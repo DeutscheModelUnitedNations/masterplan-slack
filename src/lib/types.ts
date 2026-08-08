@@ -28,8 +28,14 @@ export interface MessageEntry {
 	messageBody: string;
 }
 
+export interface Conference {
+	id: number;
+	name: string;
+}
+
 export interface Person {
 	id: number;
+	conferenceId: number;
 	name: string;
 	// Explizit hinterlegte Adresse hat beim Login-Matching Vorrang vor dem
 	// geratenen Schema v.nachname@dmun.de - siehe matchPersonByEmail().
@@ -38,12 +44,14 @@ export interface Person {
 
 export interface ScheduleDay {
 	id: number;
+	conferenceId: number;
 	label: string;
 	sortOrder: number;
 }
 
 export interface Location {
 	id: number;
+	conferenceId: number;
 	name: string;
 	lat: number | null;
 	lng: number | null;
@@ -63,6 +71,7 @@ export interface ScheduleItem {
 
 export interface Group {
 	id: number;
+	conferenceId: number;
 	name: string;
 	personIds: number[];
 }

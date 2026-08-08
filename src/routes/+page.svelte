@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { theme } from '$lib/utils/theme.svelte';
+	import ConferenceManager from '$lib/components/ConferenceManager.svelte';
 	import PeopleManager from '$lib/components/PeopleManager.svelte';
 	import LocationsManager from '$lib/components/LocationsManager.svelte';
 	import GroupsManager from '$lib/components/GroupsManager.svelte';
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte';
 	import LocationMap from '$lib/components/LocationMap.svelte';
-	import { WORKSPACES, type Group, type Location, type MessageEntry, type Person, type ScheduleDay, type ScheduleItem, type SlackStatus, type SlackUser, type Workspace } from '$lib/types';
+	import { WORKSPACES, type Conference, type Group, type Location, type MessageEntry, type Person, type ScheduleDay, type ScheduleItem, type SlackStatus, type SlackUser, type Workspace } from '$lib/types';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -58,37 +59,65 @@
 		refreshing = false;
 	}
 
-	// ---- Personen + Zeitplan (nur Admins) ------------------------------------
+	// ---- Konferenz + Personen/Locations/Gruppen (nur Admins) -----------------
+	let conferences = $state<Conference[]>([]);
+	let selectedConferenceId = $state<number | null>(null);
 	let people = $state<Person[]>([]);
 	let locations = $state<Location[]>([]);
 	let groups = $state<Group[]>([]);
 	let selectedDayId = $state<number | null>(null);
 
+	async function loadConferences() {
+		const res = await fetch('/api/conferences');
+		const data = await res.json();
+		conferences = data.conferences;
+		if (selectedConferenceId == null && conferences.length > 0) selectedConferenceId = conferences[0].id;
+	}
+
 	async function loadPeople() {
-		const res = await fetch('/api/people');
+		if (!selectedConferenceId) {
+			people = [];
+			return;
+		}
+		const res = await fetch(`/api/people?conferenceId=${selectedConferenceId}`);
 		const data = await res.json();
 		people = data.people;
 	}
 
 	async function loadLocations() {
-		const res = await fetch('/api/locations');
+		if (!selectedConferenceId) {
+			locations = [];
+			return;
+		}
+		const res = await fetch(`/api/locations?conferenceId=${selectedConferenceId}`);
 		const data = await res.json();
 		locations = data.locations;
 	}
 
 	async function loadGroups() {
-		const res = await fetch('/api/groups');
+		if (!selectedConferenceId) {
+			groups = [];
+			return;
+		}
+		const res = await fetch(`/api/groups?conferenceId=${selectedConferenceId}`);
 		const data = await res.json();
 		groups = data.groups;
 	}
+
+	$effect(() => {
+		selectedConferenceId;
+		if (data.isAdmin) {
+			loadPeople();
+			loadLocations();
+			loadGroups();
+		}
+	});
 
 	onMount(() => {
 		refreshStatus();
 		loadUsers();
 		if (data.isAdmin) {
-			loadPeople();
-			loadLocations();
-			loadGroups();
+			loadConferences();
 		} else {
 			loadMySchedule();
 		}
@@ -181,7 +210,7 @@
 	}
 
 	// ---- Nicht-Admin: nur der eigene Zeitplan ---------------------------------
-	let myMatch = $state<{ name: string; confident: boolean } | null>(null);
+	let myMatch = $state<{ name: string; confident: boolean; conferenceName: string } | null>(null);
 	let myDays = $state<{ day: ScheduleDay; items: ScheduleItem[] }[]>([]);
 	let myLoaded = $state(false);
 
@@ -230,7 +259,10 @@
 							Zuordnung ergänzt wird.
 						</p>
 					{:else}
-						<p class="text-sm text-base-content/60">Zeitplan für <strong>{myMatch.name}</strong></p>
+						<p class="text-sm text-base-content/60">
+							Zeitplan für <strong>{myMatch.name}</strong>
+							{#if myMatch.conferenceName}· {myMatch.conferenceName}{/if}
+						</p>
 						{#if myDays.length === 0}
 							<p class="text-base-content/60">Noch keine Programmpunkte für dich eingetragen.</p>
 						{/if}
@@ -266,12 +298,15 @@
 			<!-- ---- Sidebar: Konfiguration ---------------------------------------- -->
 			<aside class="w-full lg:w-96 flex flex-col gap-4 shrink-0">
 				<!-- Step 1 -->
+				<ConferenceManager {conferences} bind:selectedId={selectedConferenceId} reload={loadConferences} />
+
+				<!-- Step 2 -->
 				<div class="card bg-base-100 shadow-sm border border-base-300">
 					<div class="card-body gap-3">
 						<h2 class="card-title text-base gap-2">
 							<span
 								class="w-6 h-6 rounded-full bg-primary text-primary-content text-xs font-bold flex items-center justify-center shrink-0"
-								>1</span
+								>2</span
 							>
 							Verbindung
 						</h2>
@@ -312,15 +347,14 @@
 					</div>
 				</div>
 
-				<!-- Step 2 -->
-				<PeopleManager {people} reload={loadPeople} />
-				<LocationsManager {locations} reload={loadLocations} />
-				<GroupsManager {groups} {people} reload={loadGroups} />
+				<PeopleManager {people} conferenceId={selectedConferenceId} reload={loadPeople} />
+				<LocationsManager {locations} conferenceId={selectedConferenceId} reload={loadLocations} />
+				<GroupsManager {groups} {people} conferenceId={selectedConferenceId} reload={loadGroups} />
 			</aside>
 
 			<!-- ---- Hauptbereich: Erstellen, pruefen, versenden ---------------------- -->
 			<main class="flex-1 flex flex-col gap-4 min-w-0">
-				<ScheduleEditor {people} {locations} {groups} bind:selectedDayId />
+				<ScheduleEditor {people} {locations} {groups} conferenceId={selectedConferenceId} bind:selectedDayId />
 
 				<!-- Step 3 -->
 				<div class="card bg-base-100 shadow-sm border border-base-300">

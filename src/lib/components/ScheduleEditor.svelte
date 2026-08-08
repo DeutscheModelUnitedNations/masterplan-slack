@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import type { Group, Location, Person, ScheduleDay, ScheduleItem } from '$lib/types';
 	import LocationMap from './LocationMap.svelte';
 
@@ -7,8 +6,15 @@
 		people,
 		locations,
 		groups,
+		conferenceId,
 		selectedDayId = $bindable(null)
-	}: { people: Person[]; locations: Location[]; groups: Group[]; selectedDayId: number | null } = $props();
+	}: {
+		people: Person[];
+		locations: Location[];
+		groups: Group[];
+		conferenceId: number | null;
+		selectedDayId: number | null;
+	} = $props();
 
 	let days = $state<ScheduleDay[]>([]);
 	let items = $state<ScheduleItem[]>([]);
@@ -16,7 +22,11 @@
 	let loadingItems = $state(false);
 
 	async function loadDays() {
-		const res = await fetch('/api/schedule/days');
+		if (!conferenceId) {
+			days = [];
+			return;
+		}
+		const res = await fetch(`/api/schedule/days?conferenceId=${conferenceId}`);
 		const data = await res.json();
 		days = data.days;
 		if (selectedDayId == null && days.length > 0) selectedDayId = days[0].id;
@@ -34,18 +44,22 @@
 		loadingItems = false;
 	}
 
-	onMount(loadDays);
+	$effect(() => {
+		conferenceId;
+		selectedDayId = null;
+		loadDays();
+	});
 	$effect(() => {
 		selectedDayId;
 		loadItems();
 	});
 
 	async function addDay() {
-		if (!newDayLabel.trim()) return;
+		if (!newDayLabel.trim() || !conferenceId) return;
 		const res = await fetch('/api/schedule/days', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ label: newDayLabel.trim() })
+			body: JSON.stringify({ conferenceId, label: newDayLabel.trim() })
 		});
 		const data = await res.json();
 		newDayLabel = '';
@@ -179,28 +193,31 @@
 	<div class="card-body gap-3">
 		<h2 class="card-title text-base">Zeitplan verwalten</h2>
 
-		<div class="flex flex-wrap items-center gap-2">
-			<select class="select select-bordered select-sm" bind:value={selectedDayId}>
-				{#each days as day (day.id)}
-					<option value={day.id}>{day.label}</option>
-				{/each}
-			</select>
-			{#if selectedDayId}
-				<button class="btn btn-ghost btn-sm text-error" onclick={() => removeDay(selectedDayId!)}>
-					<i class="fa-solid fa-trash"></i> Tag löschen
-				</button>
-			{/if}
-			<div class="flex gap-2 ml-auto">
-				<input class="input input-bordered input-sm" placeholder="Neuer Tag, z.B. Tag 1 – Mittwoch" bind:value={newDayLabel} />
-				<button class="btn btn-outline btn-sm" onclick={addDay} disabled={!newDayLabel.trim()}>
-					<i class="fa-solid fa-plus"></i> Tag anlegen
-				</button>
-			</div>
-		</div>
-
-		{#if !selectedDayId}
-			<p class="text-sm text-base-content/60">Zuerst einen Tag anlegen.</p>
+		{#if !conferenceId}
+			<p class="text-sm text-base-content/60">Erst eine Konferenz auswählen.</p>
 		{:else}
+			<div class="flex flex-wrap items-center gap-2">
+				<select class="select select-bordered select-sm" bind:value={selectedDayId}>
+					{#each days as day (day.id)}
+						<option value={day.id}>{day.label}</option>
+					{/each}
+				</select>
+				{#if selectedDayId}
+					<button class="btn btn-ghost btn-sm text-error" onclick={() => removeDay(selectedDayId!)}>
+						<i class="fa-solid fa-trash"></i> Tag löschen
+					</button>
+				{/if}
+				<div class="flex gap-2 ml-auto">
+					<input class="input input-bordered input-sm" placeholder="Neuer Tag, z.B. Tag 1 – Mittwoch" bind:value={newDayLabel} />
+					<button class="btn btn-outline btn-sm" onclick={addDay} disabled={!newDayLabel.trim()}>
+						<i class="fa-solid fa-plus"></i> Tag anlegen
+					</button>
+				</div>
+			</div>
+
+			{#if !selectedDayId}
+				<p class="text-sm text-base-content/60">Zuerst einen Tag anlegen.</p>
+			{:else}
 			<div class="overflow-x-auto">
 				<table class="table table-sm">
 					<thead>
@@ -243,6 +260,7 @@
 			<button class="btn btn-primary btn-sm w-fit" onclick={openNewItem}>
 				<i class="fa-solid fa-plus"></i> Programmpunkt hinzufügen
 			</button>
+		{/if}
 		{/if}
 	</div>
 </div>

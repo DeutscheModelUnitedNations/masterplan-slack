@@ -2,7 +2,11 @@
 	import type { Location } from '$lib/types';
 	import LocationMap from './LocationMap.svelte';
 
-	let { locations, reload }: { locations: Location[]; reload: () => void } = $props();
+	let {
+		locations,
+		conferenceId,
+		reload
+	}: { locations: Location[]; conferenceId: number | null; reload: () => void } = $props();
 
 	let newName = $state('');
 	let newLat = $state<number | null>(null);
@@ -11,12 +15,12 @@
 	let showPicker = $state(false);
 
 	async function addLocation() {
-		if (!newName.trim()) return;
+		if (!newName.trim() || !conferenceId) return;
 		saving = true;
 		await fetch('/api/locations', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ name: newName.trim(), lat: newLat, lng: newLng })
+			body: JSON.stringify({ conferenceId, name: newName.trim(), lat: newLat, lng: newLng })
 		});
 		newName = '';
 		newLat = null;
@@ -53,23 +57,31 @@
 					</button>
 				</div>
 			{:else}
-				<p class="text-sm text-base-content/60">Noch keine Locations angelegt.</p>
+				<p class="text-sm text-base-content/60">
+					{conferenceId ? 'Noch keine Locations angelegt.' : 'Erst eine Konferenz auswählen.'}
+				</p>
 			{/each}
 		</div>
 
 		<div class="flex gap-2">
-			<input class="input input-bordered input-sm flex-1" placeholder="Name, z.B. Plenarsaal" bind:value={newName} />
+			<input
+				class="input input-bordered input-sm flex-1"
+				placeholder="Name, z.B. Plenarsaal"
+				bind:value={newName}
+				disabled={!conferenceId}
+			/>
 			<button
 				class="btn btn-outline btn-sm"
 				onclick={() => (showPicker = !showPicker)}
 				aria-label="Karte zum Setzen der Koordinate anzeigen"
+				disabled={!conferenceId}
 			>
 				<i class="fa-solid fa-map-location-dot"></i>
 			</button>
 			<button
 				class="btn btn-primary btn-sm"
 				onclick={addLocation}
-				disabled={saving || !newName.trim()}
+				disabled={saving || !newName.trim() || !conferenceId}
 				aria-label="Location hinzufügen"
 			>
 				<i class="fa-solid fa-plus"></i>

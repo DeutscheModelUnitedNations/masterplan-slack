@@ -16,21 +16,36 @@ const pool = mysql.createPool({
 let schemaReady: Promise<void> | null = null;
 
 const SCHEMA_STATEMENTS = [
+	// Alles (Personen, Tage, Locations, Gruppen) haengt an einer Konferenz -
+	// ein neues Jahr/Event faengt einfach mit einer neuen Konferenz bei null an,
+	// alte Konferenzen bleiben zum Nachschauen erhalten.
+	`CREATE TABLE IF NOT EXISTS conferences (
+		id INT AUTO_INCREMENT PRIMARY KEY,
+		name VARCHAR(255) NOT NULL
+	) ENGINE=InnoDB`,
 	`CREATE TABLE IF NOT EXISTS people (
 		id INT AUTO_INCREMENT PRIMARY KEY,
-		name VARCHAR(255) NOT NULL UNIQUE,
-		email VARCHAR(255) NULL UNIQUE
+		conference_id INT NOT NULL,
+		name VARCHAR(255) NOT NULL,
+		email VARCHAR(255) NULL,
+		UNIQUE KEY uniq_people_conference_name (conference_id, name),
+		UNIQUE KEY uniq_people_conference_email (conference_id, email),
+		FOREIGN KEY (conference_id) REFERENCES conferences(id) ON DELETE CASCADE
 	) ENGINE=InnoDB`,
 	`CREATE TABLE IF NOT EXISTS schedule_days (
 		id INT AUTO_INCREMENT PRIMARY KEY,
+		conference_id INT NOT NULL,
 		label VARCHAR(255) NOT NULL,
-		sort_order INT NOT NULL DEFAULT 0
+		sort_order INT NOT NULL DEFAULT 0,
+		FOREIGN KEY (conference_id) REFERENCES conferences(id) ON DELETE CASCADE
 	) ENGINE=InnoDB`,
 	`CREATE TABLE IF NOT EXISTS locations (
 		id INT AUTO_INCREMENT PRIMARY KEY,
+		conference_id INT NOT NULL,
 		name VARCHAR(255) NOT NULL,
 		lat DOUBLE NULL,
-		lng DOUBLE NULL
+		lng DOUBLE NULL,
+		FOREIGN KEY (conference_id) REFERENCES conferences(id) ON DELETE CASCADE
 	) ENGINE=InnoDB`,
 	`CREATE TABLE IF NOT EXISTS schedule_items (
 		id INT AUTO_INCREMENT PRIMARY KEY,
@@ -53,7 +68,10 @@ const SCHEMA_STATEMENTS = [
 	// heisst absichtlich nicht "groups" - das ist seit MySQL 8 ein reserviertes Wort
 	`CREATE TABLE IF NOT EXISTS person_groups (
 		id INT AUTO_INCREMENT PRIMARY KEY,
-		name VARCHAR(255) NOT NULL UNIQUE
+		conference_id INT NOT NULL,
+		name VARCHAR(255) NOT NULL,
+		UNIQUE KEY uniq_group_conference_name (conference_id, name),
+		FOREIGN KEY (conference_id) REFERENCES conferences(id) ON DELETE CASCADE
 	) ENGINE=InnoDB`,
 	`CREATE TABLE IF NOT EXISTS person_group_members (
 		group_id INT NOT NULL,
