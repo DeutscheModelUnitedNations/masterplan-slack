@@ -5,8 +5,6 @@ services:
     image: masterplan-slack
     build: .
     environment:
-      - GOOGLEAUTH_EMAIL=${GOOGLEAUTH_EMAIL}
-      - GOOGLEAUTH_SECRET=${GOOGLEAUTH_SECRET}
       - SLACK_TOKEN_MUNBW=${SLACK_TOKEN_MUNBW}
       - SLACK_TOKEN_MUNBB=${SLACK_TOKEN_MUNBB}
       - SLACK_TOKEN_MUNSH=${SLACK_TOKEN_MUNSH}
@@ -15,23 +13,42 @@ services:
       - TEST_CHANNEL_MUNBB=${TEST_CHANNEL_MUNBB}
       - TEST_CHANNEL_MUNSH=${TEST_CHANNEL_MUNSH}
       - TEST_CHANNEL_DMUN=${TEST_CHANNEL_DMUN}
-      - DEFAULT_SHEET_MUNBW=${DEFAULT_SHEET_MUNBW}
-      - DEFAULT_SHEET_MUNBB=${DEFAULT_SHEET_MUNBB}
-      - DEFAULT_SHEET_MUNSH=${DEFAULT_SHEET_MUNSH}
-      - DEFAULT_SHEET_DMUN=${DEFAULT_SHEET_DMUN}
+      - AUTH_EMAIL_HEADER=${AUTH_EMAIL_HEADER:-X-Forwarded-User}
+      - ADMIN_EMAILS=${ADMIN_EMAILS}
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=${DB_USER:-masterplan}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME:-masterplan}
       - TZ=Europe/Berlin
     ports:
       - 8080:8888
-#     labels:
-#       - "traefik.enable=true"
-#       - "traefik.docker.network=traefik"
-#       - "traefik.http.routers.masterplan-slack.rule=Host(`masterplan-slack.dmun.de`)"
-#       - "traefik.http.routers.masterplan-slack.entrypoints=websecure"
-#       - "traefik.http.routers.masterplan-slack.tls.certresolver=myresolver"
-#       - "traefik.http.routers.masterplan-slack.middlewares=dmun-team-auth@docker"
-#     networks:
-#       - traefik
+    depends_on:
+      - mysql
+  #     labels:
+  #       - "traefik.enable=true"
+  #       - "traefik.docker.network=traefik"
+  #       - "traefik.http.routers.masterplan-slack.rule=Host(`masterplan-slack.dmun.de`)"
+  #       - "traefik.http.routers.masterplan-slack.entrypoints=websecure"
+  #       - "traefik.http.routers.masterplan-slack.tls.certresolver=myresolver"
+  #       - "traefik.http.routers.masterplan-slack.middlewares=dmun-team-auth@docker"
+  #     networks:
+  #       - traefik
+  #     restart: unless-stopped
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      - MYSQL_RANDOM_ROOT_PASSWORD=yes
+      - MYSQL_DATABASE=${DB_NAME:-masterplan}
+      - MYSQL_USER=${DB_USER:-masterplan}
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - masterplan-mysql:/var/lib/mysql
 #     restart: unless-stopped
+
+volumes:
+  masterplan-mysql:
 
 # networks:
 #   traefik:

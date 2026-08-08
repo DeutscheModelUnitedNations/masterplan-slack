@@ -1,15 +1,17 @@
-FROM rhub/r-minimal@sha256:f17af8b07fce2802092cdbbeab7975116ac759ae0c714d1a357ffe65c257f984
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
 
-RUN apk update && \
-    apk add --no-cache curl-dev tzdata
+FROM node:22-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=build /app/build ./build
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/node_modules ./node_modules
 
-ENV TZDIR=/usr/share/zoneinfo
-
-RUN installr -d shiny bslib shinyjs stringdist purrr dplyr stringr magrittr data.table readxl openxlsx httr slackr listviewer reactR googlesheets4
-
-COPY . /usr/local/src/myscripts
-WORKDIR /usr/local/src/myscripts
-
+ENV PORT=8888
 EXPOSE 8888
-
-CMD ["R", "-e", "shiny::runApp('.')"]
+CMD ["node", "build"]
