@@ -24,6 +24,7 @@
 		"vite": "^8.0.16"
 	},
 	"dependencies": {
-		"@deutschemodelunitednations/corporate-identity": "^1.1.10"
+		"@deutschemodelunitednations/corporate-identity": "^1.1.10",
+		"@slack/web-api": "^7.11.0"
 	}
 }
