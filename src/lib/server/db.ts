@@ -49,6 +49,18 @@ const SCHEMA_STATEMENTS = [
 		PRIMARY KEY (item_id, person_id),
 		FOREIGN KEY (item_id) REFERENCES schedule_items(id) ON DELETE CASCADE,
 		FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE
+	) ENGINE=InnoDB`,
+	// heisst absichtlich nicht "groups" - das ist seit MySQL 8 ein reserviertes Wort
+	`CREATE TABLE IF NOT EXISTS person_groups (
+		id INT AUTO_INCREMENT PRIMARY KEY,
+		name VARCHAR(255) NOT NULL UNIQUE
+	) ENGINE=InnoDB`,
+	`CREATE TABLE IF NOT EXISTS person_group_members (
+		group_id INT NOT NULL,
+		person_id INT NOT NULL,
+		PRIMARY KEY (group_id, person_id),
+		FOREIGN KEY (group_id) REFERENCES person_groups(id) ON DELETE CASCADE,
+		FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE
 	) ENGINE=InnoDB`
 ];
 

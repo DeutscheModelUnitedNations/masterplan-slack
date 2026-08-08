@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { Location, Person, ScheduleDay, ScheduleItem } from '$lib/types';
+	import type { Group, Location, Person, ScheduleDay, ScheduleItem } from '$lib/types';
 	import LocationMap from './LocationMap.svelte';
 
 	let {
 		people,
 		locations,
+		groups,
 		selectedDayId = $bindable(null)
-	}: { people: Person[]; locations: Location[]; selectedDayId: number | null } = $props();
+	}: { people: Person[]; locations: Location[]; groups: Group[]; selectedDayId: number | null } = $props();
 
 	let days = $state<ScheduleDay[]>([]);
 	let items = $state<ScheduleItem[]>([]);
@@ -68,6 +69,7 @@
 	let itemTeamInfo = $state(false);
 	let itemPersonIds = $state<Set<number>>(new Set());
 	let personFilter = $state('');
+	let groupToAdd = $state<number | null>(null);
 
 	function openNewItem() {
 		editingItem = null;
@@ -77,6 +79,7 @@
 		itemTeamInfo = false;
 		itemPersonIds = new Set();
 		personFilter = '';
+		groupToAdd = null;
 		showItemModal = true;
 	}
 
@@ -88,6 +91,7 @@
 		itemTeamInfo = item.teamInfo;
 		itemPersonIds = new Set(item.personIds);
 		personFilter = '';
+		groupToAdd = null;
 		showItemModal = true;
 	}
 
@@ -95,6 +99,15 @@
 		const next = new Set(itemPersonIds);
 		if (next.has(id)) next.delete(id);
 		else next.add(id);
+		itemPersonIds = next;
+	}
+
+	function addGroupMembers() {
+		if (groupToAdd == null) return;
+		const group = groups.find((g) => g.id === groupToAdd);
+		if (!group) return;
+		const next = new Set(itemPersonIds);
+		for (const id of group.personIds) next.add(id);
 		itemPersonIds = next;
 	}
 
@@ -266,6 +279,20 @@
 			{#if selectedLocation}
 				<div class="mt-3">
 					<LocationMap lat={selectedLocation.lat} lng={selectedLocation.lng} height="160px" />
+				</div>
+			{/if}
+
+			{#if groups.length > 0}
+				<div class="flex items-center gap-2 mt-4">
+					<select class="select select-bordered select-sm flex-1" bind:value={groupToAdd}>
+						<option value={null}>Gruppe übernehmen…</option>
+						{#each groups as group (group.id)}
+							<option value={group.id}>{group.name} ({group.personIds.length})</option>
+						{/each}
+					</select>
+					<button class="btn btn-outline btn-sm" onclick={addGroupMembers} disabled={groupToAdd == null}>
+						<i class="fa-solid fa-users"></i> Hinzufügen
+					</button>
 				</div>
 			{/if}
 

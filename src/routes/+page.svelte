@@ -3,9 +3,10 @@
 	import { theme } from '$lib/utils/theme.svelte';
 	import PeopleManager from '$lib/components/PeopleManager.svelte';
 	import LocationsManager from '$lib/components/LocationsManager.svelte';
+	import GroupsManager from '$lib/components/GroupsManager.svelte';
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte';
 	import LocationMap from '$lib/components/LocationMap.svelte';
-	import { WORKSPACES, type Location, type MessageEntry, type Person, type ScheduleDay, type ScheduleItem, type SlackStatus, type SlackUser, type Workspace } from '$lib/types';
+	import { WORKSPACES, type Group, type Location, type MessageEntry, type Person, type ScheduleDay, type ScheduleItem, type SlackStatus, type SlackUser, type Workspace } from '$lib/types';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -60,6 +61,7 @@
 	// ---- Personen + Zeitplan (nur Admins) ------------------------------------
 	let people = $state<Person[]>([]);
 	let locations = $state<Location[]>([]);
+	let groups = $state<Group[]>([]);
 	let selectedDayId = $state<number | null>(null);
 
 	async function loadPeople() {
@@ -74,12 +76,19 @@
 		locations = data.locations;
 	}
 
+	async function loadGroups() {
+		const res = await fetch('/api/groups');
+		const data = await res.json();
+		groups = data.groups;
+	}
+
 	onMount(() => {
 		refreshStatus();
 		loadUsers();
 		if (data.isAdmin) {
 			loadPeople();
 			loadLocations();
+			loadGroups();
 		} else {
 			loadMySchedule();
 		}
@@ -306,11 +315,12 @@
 				<!-- Step 2 -->
 				<PeopleManager {people} reload={loadPeople} />
 				<LocationsManager {locations} reload={loadLocations} />
+				<GroupsManager {groups} {people} reload={loadGroups} />
 			</aside>
 
 			<!-- ---- Hauptbereich: Erstellen, pruefen, versenden ---------------------- -->
 			<main class="flex-1 flex flex-col gap-4 min-w-0">
-				<ScheduleEditor {people} {locations} bind:selectedDayId />
+				<ScheduleEditor {people} {locations} {groups} bind:selectedDayId />
 
 				<!-- Step 3 -->
 				<div class="card bg-base-100 shadow-sm border border-base-300">

@@ -60,3 +60,9 @@ export interface ScheduleItem {
 	sortOrder: number;
 	personIds: number[];
 }
+
+export interface Group {
+	id: number;
+	name: string;
+	personIds: number[];
+}

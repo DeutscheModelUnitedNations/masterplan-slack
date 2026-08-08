@@ -1,6 +1,6 @@
 import type { RowDataPacket } from 'mysql2';
 import { bestSlackMatch, matchPersonByEmail, matchQuality, type PersonMatch } from '$lib/matching';
-import type { Location, MessageEntry, Person, ScheduleDay, ScheduleItem, SlackUser } from '$lib/types';
+import type { Group, Location, MessageEntry, Person, ScheduleDay, ScheduleItem, SlackUser } from '$lib/types';
 import { db } from './db';
 
 // ---- Personen -------------------------------------------------------------
@@ -60,6 +60,60 @@ export async function updateLocation(id: number, name: string, lat: number | nul
 export async function deleteLocation(id: number): Promise<void> {
 	const pool = await db();
 	await pool.execute('DELETE FROM locations WHERE id = ?', [id]);
+}
+
+// ---- Gruppen (bequemes Bulk-Zuordnen mehrerer Personen) ----------------------
+
+export async function listGroups(): Promise<Group[]> {
+	const pool = await db();
+	const [groups] = await pool.query<RowDataPacket[]>('SELECT id, name FROM person_groups ORDER BY name');
+	if (groups.length === 0) return [];
+
+	const [members] = await pool.query<RowDataPacket[]>(
+		'SELECT group_id, person_id FROM person_group_members WHERE group_id IN (?)',
+		[groups.map((g) => g.id)]
+	);
+	const byGroup = new Map<number, number[]>();
+	for (const m of members) {
+		const list = byGroup.get(m.group_id) ?? [];
+		list.push(m.person_id);
+		byGroup.set(m.group_id, list);
+	}
+	return groups.map((g) => ({ id: g.id, name: g.name, personIds: byGroup.get(g.id) ?? [] }));
+}
+
+export async function createGroup(name: string): Promise<Group> {
+	const pool = await db();
+	const [result] = await pool.execute<import('mysql2').ResultSetHeader>(
+		'INSERT INTO person_groups (name) VALUES (?)',
+		[name]
+	);
+	return { id: result.insertId, name, personIds: [] };
+}
+
+export async function renameGroup(id: number, name: string): Promise<void> {
+	const pool = await db();
+	await pool.execute('UPDATE person_groups SET name = ? WHERE id = ?', [name, id]);
+}
+
+export async function deleteGroup(id: number): Promise<void> {
+	const pool = await db();
+	await pool.execute('DELETE FROM person_groups WHERE id = ?', [id]);
+}
+
+export async function setGroupMember(groupId: number, personId: number, member: boolean): Promise<void> {
+	const pool = await db();
+	if (member) {
+		await pool.execute('INSERT IGNORE INTO person_group_members (group_id, person_id) VALUES (?, ?)', [
+			groupId,
+			personId
+		]);
+	} else {
+		await pool.execute('DELETE FROM person_group_members WHERE group_id = ? AND person_id = ?', [
+			groupId,
+			personId
+		]);
+	}
 }
 
 // ---- Tage -------------------------------------------------------------------
