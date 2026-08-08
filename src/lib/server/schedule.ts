@@ -1,6 +1,6 @@
 import type { RowDataPacket } from 'mysql2';
 import { bestSlackMatch, matchPersonByEmail, matchQuality, type PersonMatch } from '$lib/matching';
-import type { MessageEntry, Person, ScheduleDay, ScheduleItem, SlackUser } from '$lib/types';
+import type { Location, MessageEntry, Person, ScheduleDay, ScheduleItem, SlackUser } from '$lib/types';
 import { db } from './db';
 
 // ---- Personen -------------------------------------------------------------
@@ -35,6 +35,33 @@ export async function findPersonForEmail(email: string): Promise<PersonMatch> {
 	return matchPersonByEmail(email, people);
 }
 
+// ---- Locations (fuer die OSM-Karte) -----------------------------------------
+
+export async function listLocations(): Promise<Location[]> {
+	const pool = await db();
+	const [rows] = await pool.query<RowDataPacket[]>('SELECT id, name, lat, lng FROM locations ORDER BY name');
+	return rows.map((r) => ({ id: r.id, name: r.name, lat: r.lat, lng: r.lng }));
+}
+
+export async function createLocation(name: string, lat: number | null, lng: number | null): Promise<Location> {
+	const pool = await db();
+	const [result] = await pool.execute<import('mysql2').ResultSetHeader>(
+		'INSERT INTO locations (name, lat, lng) VALUES (?, ?, ?)',
+		[name, lat, lng]
+	);
+	return { id: result.insertId, name, lat, lng };
+}
+
+export async function updateLocation(id: number, name: string, lat: number | null, lng: number | null): Promise<void> {
+	const pool = await db();
+	await pool.execute('UPDATE locations SET name = ?, lat = ?, lng = ? WHERE id = ?', [name, lat, lng, id]);
+}
+
+export async function deleteLocation(id: number): Promise<void> {
+	const pool = await db();
+	await pool.execute('DELETE FROM locations WHERE id = ?', [id]);
+}
+
 // ---- Tage -------------------------------------------------------------------
 
 export async function listDays(): Promise<ScheduleDay[]> {
@@ -67,7 +94,12 @@ export async function deleteDay(id: number): Promise<void> {
 export async function listItems(dayId: number): Promise<ScheduleItem[]> {
 	const pool = await db();
 	const [items] = await pool.query<RowDataPacket[]>(
-		'SELECT id, day_id, time, title, location, team_info, sort_order FROM schedule_items WHERE day_id = ? ORDER BY sort_order, id',
+		`SELECT si.id, si.day_id, si.time, si.title, si.team_info, si.sort_order,
+		        l.id AS loc_id, l.name AS loc_name, l.lat AS loc_lat, l.lng AS loc_lng
+		 FROM schedule_items si
+		 LEFT JOIN locations l ON l.id = si.location_id
+		 WHERE si.day_id = ?
+		 ORDER BY si.sort_order, si.id`,
 		[dayId]
 	);
 	if (items.length === 0) return [];
@@ -88,7 +120,8 @@ export async function listItems(dayId: number): Promise<ScheduleItem[]> {
 		dayId: i.day_id,
 		time: i.time,
 		title: i.title,
-		location: i.location,
+		locationId: i.loc_id,
+		location: i.loc_id ? { id: i.loc_id, name: i.loc_name, lat: i.loc_lat, lng: i.loc_lng } : null,
 		teamInfo: Boolean(i.team_info),
 		sortOrder: i.sort_order,
 		personIds: personsByItem.get(i.id) ?? []
@@ -99,7 +132,7 @@ interface ItemInput {
 	dayId: number;
 	time: string;
 	title: string;
-	location: string;
+	locationId: number | null;
 	teamInfo: boolean;
 }
 
@@ -110,21 +143,18 @@ export async function createItem(input: ItemInput): Promise<number> {
 		[input.dayId]
 	);
 	const [result] = await pool.execute<import('mysql2').ResultSetHeader>(
-		'INSERT INTO schedule_items (day_id, time, title, location, team_info, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
-		[input.dayId, input.time, input.title, input.location, input.teamInfo, maxOrder]
+		'INSERT INTO schedule_items (day_id, time, title, location_id, team_info, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
+		[input.dayId, input.time, input.title, input.locationId, input.teamInfo, maxOrder]
 	);
 	return result.insertId;
 }
 
 export async function updateItem(id: number, input: ItemInput): Promise<void> {
 	const pool = await db();
-	await pool.execute('UPDATE schedule_items SET time = ?, title = ?, location = ?, team_info = ? WHERE id = ?', [
-		input.time,
-		input.title,
-		input.location,
-		input.teamInfo,
-		id
-	]);
+	await pool.execute(
+		'UPDATE schedule_items SET time = ?, title = ?, location_id = ?, team_info = ? WHERE id = ?',
+		[input.time, input.title, input.locationId, input.teamInfo, id]
+	);
 }
 
 export async function deleteItem(id: number): Promise<void> {
@@ -154,7 +184,7 @@ function formatMessageBody(items: ScheduleItem[], people: Person[], showTeamColu
 			showTeamColumn && item.teamInfo
 				? `(${item.personIds.map((id) => peopleById.get(id)).filter(Boolean).join(',')})`
 				: '';
-		return [item.time || '-', item.title || '-', item.location || '-', ...(showTeamColumn ? [team] : [])];
+		return [item.time || '-', item.title || '-', item.location?.name || '-', ...(showTeamColumn ? [team] : [])];
 	});
 	return [header.join('\t'), ...rows.map((r) => r.join('\t'))].join('\n');
 }

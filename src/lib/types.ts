@@ -42,12 +42,20 @@ export interface ScheduleDay {
 	sortOrder: number;
 }
 
+export interface Location {
+	id: number;
+	name: string;
+	lat: number | null;
+	lng: number | null;
+}
+
 export interface ScheduleItem {
 	id: number;
 	dayId: number;
 	time: string;
 	title: string;
-	location: string;
+	locationId: number | null;
+	location: Location | null;
 	teamInfo: boolean;
 	sortOrder: number;
 	personIds: number[];

@@ -15,7 +15,7 @@ export async function POST({ request, locals }) {
 		dayId: number;
 		time: string;
 		title: string;
-		location: string;
+		locationId: number | null;
 		teamInfo: boolean;
 	};
 	const id = await createItem(body);

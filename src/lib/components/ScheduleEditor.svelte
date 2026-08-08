@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { Person, ScheduleDay, ScheduleItem } from '$lib/types';
+	import type { Location, Person, ScheduleDay, ScheduleItem } from '$lib/types';
+	import LocationMap from './LocationMap.svelte';
 
 	let {
 		people,
+		locations,
 		selectedDayId = $bindable(null)
-	}: { people: Person[]; selectedDayId: number | null } = $props();
+	}: { people: Person[]; locations: Location[]; selectedDayId: number | null } = $props();
 
 	let days = $state<ScheduleDay[]>([]);
 	let items = $state<ScheduleItem[]>([]);
@@ -62,7 +64,7 @@
 	let editingItem = $state<ScheduleItem | null>(null);
 	let itemTime = $state('');
 	let itemTitle = $state('');
-	let itemLocation = $state('');
+	let itemLocationId = $state<number | null>(null);
 	let itemTeamInfo = $state(false);
 	let itemPersonIds = $state<Set<number>>(new Set());
 	let personFilter = $state('');
@@ -71,7 +73,7 @@
 		editingItem = null;
 		itemTime = '';
 		itemTitle = '';
-		itemLocation = '';
+		itemLocationId = null;
 		itemTeamInfo = false;
 		itemPersonIds = new Set();
 		personFilter = '';
@@ -82,7 +84,7 @@
 		editingItem = item;
 		itemTime = item.time;
 		itemTitle = item.title;
-		itemLocation = item.location;
+		itemLocationId = item.locationId;
 		itemTeamInfo = item.teamInfo;
 		itemPersonIds = new Set(item.personIds);
 		personFilter = '';
@@ -96,13 +98,15 @@
 		itemPersonIds = next;
 	}
 
+	let selectedLocation = $derived(locations.find((l) => l.id === itemLocationId) ?? null);
+
 	async function saveItem() {
 		if (!selectedDayId) return;
 		const body = {
 			dayId: selectedDayId,
 			time: itemTime.trim(),
 			title: itemTitle.trim(),
-			location: itemLocation.trim(),
+			locationId: itemLocationId,
 			teamInfo: itemTeamInfo
 		};
 
@@ -200,7 +204,7 @@
 							<tr>
 								<td>{item.time}</td>
 								<td>{item.title}{#if item.teamInfo}<span class="badge badge-ghost badge-sm ml-1">Team-Info</span>{/if}</td>
-								<td>{item.location}</td>
+								<td>{item.location?.name ?? '—'}</td>
 								<td class="max-w-xs truncate" title={personNames(item.personIds)}>
 									{personNames(item.personIds) || '—'}
 								</td>
@@ -246,13 +250,24 @@
 				</fieldset>
 				<fieldset class="fieldset sm:col-span-2">
 					<legend class="fieldset-legend">Ort</legend>
-					<input class="input input-bordered w-full" bind:value={itemLocation} />
+					<select class="select select-bordered w-full" bind:value={itemLocationId}>
+						<option value={null}>Keine Location</option>
+						{#each locations as loc (loc.id)}
+							<option value={loc.id}>{loc.name}</option>
+						{/each}
+					</select>
 				</fieldset>
 				<label class="label cursor-pointer gap-2 self-end pb-3">
 					<input type="checkbox" class="checkbox checkbox-sm" bind:checked={itemTeamInfo} />
 					<span class="label-text">Team-Info anzeigen</span>
 				</label>
 			</div>
+
+			{#if selectedLocation}
+				<div class="mt-3">
+					<LocationMap lat={selectedLocation.lat} lng={selectedLocation.lng} height="160px" />
+				</div>
+			{/if}
 
 			<div class="mt-4">
 				<div class="flex items-center justify-between mb-1">

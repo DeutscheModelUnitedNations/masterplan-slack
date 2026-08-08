@@ -2,8 +2,10 @@
 	import { onMount } from 'svelte';
 	import { theme } from '$lib/utils/theme.svelte';
 	import PeopleManager from '$lib/components/PeopleManager.svelte';
+	import LocationsManager from '$lib/components/LocationsManager.svelte';
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte';
-	import { WORKSPACES, type MessageEntry, type Person, type ScheduleDay, type ScheduleItem, type SlackStatus, type SlackUser, type Workspace } from '$lib/types';
+	import LocationMap from '$lib/components/LocationMap.svelte';
+	import { WORKSPACES, type Location, type MessageEntry, type Person, type ScheduleDay, type ScheduleItem, type SlackStatus, type SlackUser, type Workspace } from '$lib/types';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -57,6 +59,7 @@
 
 	// ---- Personen + Zeitplan (nur Admins) ------------------------------------
 	let people = $state<Person[]>([]);
+	let locations = $state<Location[]>([]);
 	let selectedDayId = $state<number | null>(null);
 
 	async function loadPeople() {
@@ -65,11 +68,21 @@
 		people = data.people;
 	}
 
+	async function loadLocations() {
+		const res = await fetch('/api/locations');
+		const data = await res.json();
+		locations = data.locations;
+	}
+
 	onMount(() => {
 		refreshStatus();
 		loadUsers();
-		if (data.isAdmin) loadPeople();
-		else loadMySchedule();
+		if (data.isAdmin) {
+			loadPeople();
+			loadLocations();
+		} else {
+			loadMySchedule();
+		}
 	});
 
 	// ---- Schritt 3: Nachrichten erstellen & pruefen --------------------------
@@ -214,26 +227,24 @@
 						{/if}
 						{#each myDays as { day, items } (day.id)}
 							<div class="mt-2">
-								<h3 class="font-semibold mb-1">{day.label}</h3>
-								<div class="overflow-x-auto">
-									<table class="table table-sm">
-										<thead>
-											<tr>
-												<th>Uhrzeit</th>
-												<th>Programmpunkt</th>
-												<th>Ort</th>
-											</tr>
-										</thead>
-										<tbody>
-											{#each items as item (item.id)}
-												<tr>
-													<td>{item.time}</td>
-													<td>{item.title}</td>
-													<td>{item.location}</td>
-												</tr>
-											{/each}
-										</tbody>
-									</table>
+								<h3 class="font-semibold mb-2">{day.label}</h3>
+								<div class="flex flex-col gap-2">
+									{#each items as item (item.id)}
+										<div class="border border-base-300 rounded-lg p-3">
+											<div class="flex items-baseline gap-2 flex-wrap">
+												<span class="font-mono text-sm">{item.time}</span>
+												<span class="font-medium">{item.title}</span>
+												{#if item.location}
+													<span class="text-sm text-base-content/60">· {item.location.name}</span>
+												{/if}
+											</div>
+											{#if item.location?.lat != null && item.location?.lng != null}
+												<div class="mt-2">
+													<LocationMap lat={item.location.lat} lng={item.location.lng} height="160px" />
+												</div>
+											{/if}
+										</div>
+									{/each}
 								</div>
 							</div>
 						{/each}
@@ -294,11 +305,12 @@
 
 				<!-- Step 2 -->
 				<PeopleManager {people} reload={loadPeople} />
+				<LocationsManager {locations} reload={loadLocations} />
 			</aside>
 
 			<!-- ---- Hauptbereich: Erstellen, pruefen, versenden ---------------------- -->
 			<main class="flex-1 flex flex-col gap-4 min-w-0">
-				<ScheduleEditor {people} bind:selectedDayId />
+				<ScheduleEditor {people} {locations} bind:selectedDayId />
 
 				<!-- Step 3 -->
 				<div class="card bg-base-100 shadow-sm border border-base-300">
