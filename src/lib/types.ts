@@ -27,3 +27,28 @@ export interface MessageEntry {
 	messageHead: string;
 	messageBody: string;
 }
+
+export interface Person {
+	id: number;
+	name: string;
+	// Explizit hinterlegte Adresse hat beim Login-Matching Vorrang vor dem
+	// geratenen Schema v.nachname@dmun.de - siehe matchPersonByEmail().
+	email: string | null;
+}
+
+export interface ScheduleDay {
+	id: number;
+	label: string;
+	sortOrder: number;
+}
+
+export interface ScheduleItem {
+	id: number;
+	dayId: number;
+	time: string;
+	title: string;
+	location: string;
+	teamInfo: boolean;
+	sortOrder: number;
+	personIds: number[];
+}

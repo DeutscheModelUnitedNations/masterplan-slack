@@ -1,4 +1,4 @@
-import type { MatchQuality, SlackUser } from './types';
+import type { MatchQuality, Person, SlackUser } from './types';
 
 // Namens-Matching: normalisiert (Kleinschreibung, Umlaute, Diakritika, Satzzeichen),
 // vergleicht token-sortiert per Jaro-Winkler und beruecksichtigt Teilmengen
@@ -107,4 +107,45 @@ export function matchQuality(score: number | null | undefined): MatchQuality {
 	if (score >= 0.9) return 'good';
 	if (score >= 0.75) return 'weak';
 	return 'poor';
+}
+
+// dmun.de-Adressen folgen dem Schema v.nachname@dmun.de (erster Buchstabe des
+// Vornamens + Nachname). "v.berger" fuer "Anna Berger" ergibt z.B. "a.berger".
+function expectedLocalPart(personName: string): string {
+	const tokens = normalizeName(personName).split(' ').filter(Boolean);
+	if (tokens.length === 0) return '';
+	return `${tokens[0][0]}.${tokens[tokens.length - 1]}`;
+}
+
+// Ab dieser Aehnlichkeit wird ein geratener Treffer automatisch akzeptiert.
+// Bewusst hoch angesetzt: ein falscher Login-Treffer wuerde fremde Zeitplaene
+// offenlegen, deshalb lieber "kein Treffer" als "vermutlich richtig".
+export const AUTO_MATCH_THRESHOLD = 0.92;
+
+export interface PersonMatch {
+	person: Person | null;
+	score: number;
+	// true = automatisch sicher zugeordnet (exakte E-Mail oder sehr hohe
+	// Namens-Aehnlichkeit). false = kein verlaesslicher Treffer, sollte von
+	// einem Admin per expliziter E-Mail am Personendatensatz geklaert werden.
+	confident: boolean;
+}
+
+export function matchPersonByEmail(email: string, people: Person[]): PersonMatch {
+	const normalizedEmail = email.trim().toLowerCase();
+	const explicit = people.find((p) => p.email?.trim().toLowerCase() === normalizedEmail);
+	if (explicit) return { person: explicit, score: 1, confident: true };
+
+	const local = normalizedEmail.split('@')[0] ?? '';
+	let best: Person | null = null;
+	let bestScore = 0;
+	for (const person of people) {
+		const score = nameSimilarity(expectedLocalPart(person.name), local);
+		if (score > bestScore) {
+			bestScore = score;
+			best = person;
+		}
+	}
+	const confident = bestScore >= AUTO_MATCH_THRESHOLD;
+	return { person: confident ? best : null, score: bestScore, confident };
 }

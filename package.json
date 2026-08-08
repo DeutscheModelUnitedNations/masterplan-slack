@@ -25,6 +25,7 @@
 	},
 	"dependencies": {
 		"@deutschemodelunitednations/corporate-identity": "^1.1.10",
-		"@slack/web-api": "^7.11.0"
+		"@slack/web-api": "^7.11.0",
+		"mysql2": "^3.15.2"
 	}
 }
