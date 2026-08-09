@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Person } from '$lib/types';
+	import { expectedLocalPart } from '$lib/matching';
 
 	let {
 		people,
@@ -10,13 +11,31 @@
 	let newName = $state('');
 	let newEmail = $state('');
 	let saving = $state(false);
+	// Sobald die E-Mail manuell angefasst wurde, nicht mehr durch den Namens-Vorschlag ueberschreiben.
+	let emailTouched = $state(false);
 
 	let editingId = $state<number | null>(null);
 	let editName = $state('');
 	let editEmail = $state('');
 
+	$effect(() => {
+		if (emailTouched) return;
+		const local = expectedLocalPart(newName);
+		newEmail = local ? `${local}@dmun.de` : '';
+	});
+
+	// Einfache Formatpruefung, kein Anspruch auf vollstaendige RFC5322-Konformitaet -
+	// soll nur Tippfehler abfangen. E-Mail ist optional, ein leeres Feld ist also gueltig.
+	const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+	function isValidEmail(value: string): boolean {
+		return value.trim() === '' || EMAIL_RE.test(value.trim());
+	}
+
+	let newEmailValid = $derived(isValidEmail(newEmail));
+	let editEmailValid = $derived(isValidEmail(editEmail));
+
 	async function addPerson() {
-		if (!newName.trim() || !conferenceId) return;
+		if (!newName.trim() || !conferenceId || !newEmailValid) return;
 		saving = true;
 		await fetch('/api/people', {
 			method: 'POST',
@@ -25,6 +44,7 @@
 		});
 		newName = '';
 		newEmail = '';
+		emailTouched = false;
 		saving = false;
 		reload();
 	}
@@ -36,7 +56,7 @@
 	}
 
 	async function saveEdit() {
-		if (editingId == null) return;
+		if (editingId == null || !editEmailValid) return;
 		await fetch(`/api/people/${editingId}`, {
 			method: 'PATCH',
 			headers: { 'content-type': 'application/json' },
@@ -63,11 +83,16 @@
 					{#if editingId === p.id}
 						<input class="input input-bordered input-sm flex-1" bind:value={editName} />
 						<input
-							class="input input-bordered input-sm flex-1"
+							class="input input-bordered input-sm flex-1 {editEmailValid ? '' : 'input-error'}"
 							placeholder="E-Mail (optional)"
 							bind:value={editEmail}
 						/>
-						<button class="btn btn-success btn-xs" onclick={saveEdit} aria-label="Speichern">
+						<button
+							class="btn btn-success btn-xs"
+							onclick={saveEdit}
+							disabled={!editEmailValid}
+							aria-label="Speichern"
+						>
 							<i class="fa-solid fa-check"></i>
 						</button>
 						<button class="btn btn-ghost btn-xs" onclick={() => (editingId = null)} aria-label="Abbrechen">
@@ -98,20 +123,27 @@
 		<div class="flex gap-2">
 			<input class="input input-bordered input-sm flex-1" placeholder="Name" bind:value={newName} disabled={!conferenceId} />
 			<input
-				class="input input-bordered input-sm flex-1"
+				class="input input-bordered input-sm flex-1 {newEmailValid ? '' : 'input-error'}"
 				placeholder="E-Mail (optional)"
-				bind:value={newEmail}
+				value={newEmail}
+				oninput={(e) => {
+					emailTouched = true;
+					newEmail = (e.target as HTMLInputElement).value;
+				}}
 				disabled={!conferenceId}
 			/>
 			<button
 				class="btn btn-primary btn-sm"
 				onclick={addPerson}
-				disabled={saving || !newName.trim() || !conferenceId}
+				disabled={saving || !newName.trim() || !conferenceId || !newEmailValid}
 				aria-label="Person hinzufügen"
 			>
 				<i class="fa-solid fa-plus"></i>
 			</button>
 		</div>
+		{#if !newEmailValid}
+			<p class="text-xs text-error">Das sieht nicht nach einer gültigen E-Mail-Adresse aus.</p>
+		{/if}
 		<p class="text-xs text-base-content/60">
 			E-Mail ist optional – ohne sie wird beim Login automatisch nach dem Schema
 			<code>v.nachname@dmun.de</code> gematcht. Bei Unsicherheit lieber hier direkt eine E-Mail hinterlegen.

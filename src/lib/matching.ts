@@ -111,7 +111,9 @@ export function matchQuality(score: number | null | undefined): MatchQuality {
 
 // dmun.de-Adressen folgen dem Schema v.nachname@dmun.de (erster Buchstabe des
 // Vornamens + Nachname). "v.berger" fuer "Anna Berger" ergibt z.B. "a.berger".
-function expectedLocalPart(personName: string): string {
+// Exportiert, damit der People Manager beim Anlegen denselben Vorschlag zeigt,
+// den das Login-Matching spaeter erwartet.
+export function expectedLocalPart(personName: string): string {
 	const tokens = normalizeName(personName).split(' ').filter(Boolean);
 	if (tokens.length === 0) return '';
 	return `${tokens[0][0]}.${tokens[tokens.length - 1]}`;
