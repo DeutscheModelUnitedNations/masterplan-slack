@@ -61,6 +61,7 @@ export interface ScheduleItem {
 	id: number;
 	dayId: number;
 	time: string;
+	endTime: string | null;
 	title: string;
 	locationId: number | null;
 	location: Location | null;

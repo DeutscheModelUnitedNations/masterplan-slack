@@ -7,6 +7,7 @@ export async function PATCH({ request, params, locals }) {
 	const body = (await request.json()) as {
 		dayId: number;
 		time: string;
+		endTime: string | null;
 		title: string;
 		locationId: number | null;
 		teamInfo: boolean;

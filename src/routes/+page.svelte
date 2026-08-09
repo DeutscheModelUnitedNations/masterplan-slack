@@ -6,7 +6,7 @@
 	import LocationsManager from '$lib/components/LocationsManager.svelte';
 	import GroupsManager from '$lib/components/GroupsManager.svelte';
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte';
-	import LocationMap from '$lib/components/LocationMap.svelte';
+	import ScheduleCalendar from '$lib/components/ScheduleCalendar.svelte';
 	import { WORKSPACES, type Conference, type Group, type Location, type MessageEntry, type Person, type ScheduleDay, type ScheduleItem, type SlackStatus, type SlackUser, type Workspace } from '$lib/types';
 	import type { PageData } from './$types';
 
@@ -269,24 +269,7 @@
 						{#each myDays as { day, items } (day.id)}
 							<div class="mt-2">
 								<h3 class="font-semibold mb-2">{day.label}</h3>
-								<div class="flex flex-col gap-2">
-									{#each items as item (item.id)}
-										<div class="border border-base-300 rounded-lg p-3">
-											<div class="flex items-baseline gap-2 flex-wrap">
-												<span class="font-mono text-sm">{item.time}</span>
-												<span class="font-medium">{item.title}</span>
-												{#if item.location}
-													<span class="text-sm text-base-content/60">· {item.location.name}</span>
-												{/if}
-											</div>
-											{#if item.location?.lat != null && item.location?.lng != null}
-												<div class="mt-2">
-													<LocationMap lat={item.location.lat} lng={item.location.lng} height="160px" />
-												</div>
-											{/if}
-										</div>
-									{/each}
-								</div>
+								<ScheduleCalendar {items} emptyMessage="Keine Programmpunkte an diesem Tag." />
 							</div>
 						{/each}
 					{/if}

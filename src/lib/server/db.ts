@@ -1,4 +1,5 @@
 import mysql from 'mysql2/promise';
+import type { RowDataPacket } from 'mysql2';
 import { env } from '$env/dynamic/private';
 
 const pool = mysql.createPool({
@@ -51,6 +52,7 @@ const SCHEMA_STATEMENTS = [
 		id INT AUTO_INCREMENT PRIMARY KEY,
 		day_id INT NOT NULL,
 		time VARCHAR(32) NOT NULL DEFAULT '',
+		end_time VARCHAR(32) NULL,
 		title VARCHAR(255) NOT NULL DEFAULT '',
 		location_id INT NULL,
 		team_info BOOLEAN NOT NULL DEFAULT FALSE,
@@ -82,12 +84,26 @@ const SCHEMA_STATEMENTS = [
 	) ENGINE=InnoDB`
 ];
 
+// MySQL kennt kein "ADD COLUMN IF NOT EXISTS" (anders als MariaDB) - daher
+// vor dem ALTER erst per information_schema pruefen, ob die Spalte schon da ist.
+async function addColumnIfMissing(table: string, column: string, definition: string): Promise<void> {
+	const [rows] = await pool.query<RowDataPacket[]>(
+		`SELECT COUNT(*) AS cnt FROM information_schema.columns
+		 WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?`,
+		[table, column]
+	);
+	if (rows[0].cnt > 0) return;
+	await pool.query(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+}
+
 async function ensureSchema(): Promise<void> {
 	if (!schemaReady) {
 		schemaReady = (async () => {
 			for (const statement of SCHEMA_STATEMENTS) {
 				await pool.query(statement);
 			}
+			// end_time kam nachtraeglich dazu - bei bereits existierender Tabelle nachziehen.
+			await addColumnIfMissing('schedule_items', 'end_time', 'end_time VARCHAR(32) NULL AFTER time');
 		})();
 	}
 	return schemaReady;

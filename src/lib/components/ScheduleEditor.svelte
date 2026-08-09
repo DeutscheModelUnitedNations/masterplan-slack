@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Group, Location, Person, ScheduleDay, ScheduleItem } from '$lib/types';
 	import LocationMap from './LocationMap.svelte';
+	import ScheduleCalendar from './ScheduleCalendar.svelte';
 
 	let {
 		people,
@@ -78,35 +79,49 @@
 	let showItemModal = $state(false);
 	let editingItem = $state<ScheduleItem | null>(null);
 	let itemTime = $state('');
+	let itemEndTime = $state('');
 	let itemTitle = $state('');
 	let itemLocationId = $state<number | null>(null);
 	let itemTeamInfo = $state(false);
 	let itemPersonIds = $state<Set<number>>(new Set());
 	let personFilter = $state('');
 	let groupToAdd = $state<number | null>(null);
+	// Wiederkehrende Ereignisse: beim Neuanlegen zusaetzlich auf diesen Tagen anlegen.
+	let repeatOnDayIds = $state<Set<number>>(new Set());
 
 	function openNewItem() {
 		editingItem = null;
 		itemTime = '';
+		itemEndTime = '';
 		itemTitle = '';
 		itemLocationId = null;
 		itemTeamInfo = false;
 		itemPersonIds = new Set();
 		personFilter = '';
 		groupToAdd = null;
+		repeatOnDayIds = new Set();
 		showItemModal = true;
 	}
 
 	function openEditItem(item: ScheduleItem) {
 		editingItem = item;
 		itemTime = item.time;
+		itemEndTime = item.endTime ?? '';
 		itemTitle = item.title;
 		itemLocationId = item.locationId;
 		itemTeamInfo = item.teamInfo;
 		itemPersonIds = new Set(item.personIds);
 		personFilter = '';
 		groupToAdd = null;
+		repeatOnDayIds = new Set();
 		showItemModal = true;
+	}
+
+	function toggleRepeatDay(id: number) {
+		const next = new Set(repeatOnDayIds);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		repeatOnDayIds = next;
 	}
 
 	function togglePerson(id: number) {
@@ -132,12 +147,15 @@
 		const body = {
 			dayId: selectedDayId,
 			time: itemTime.trim(),
+			endTime: itemEndTime.trim() || null,
 			title: itemTitle.trim(),
 			locationId: itemLocationId,
-			teamInfo: itemTeamInfo
+			teamInfo: itemTeamInfo,
+			...(editingItem ? {} : { repeatOnDayIds: [...repeatOnDayIds] })
 		};
 
 		let itemId = editingItem?.id;
+		let repeatedIds: number[] = [];
 		if (editingItem) {
 			await fetch(`/api/schedule/items/${editingItem.id}`, {
 				method: 'PATCH',
@@ -150,16 +168,21 @@
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify(body)
 			});
-			itemId = (await res.json()).id;
+			const data = await res.json();
+			itemId = data.id;
+			repeatedIds = data.repeatedIds ?? [];
 		}
 
 		const before = new Set(editingItem?.personIds ?? []);
 		const toAdd = [...itemPersonIds].filter((id) => !before.has(id));
 		const toRemove = [...before].filter((id) => !itemPersonIds.has(id));
-		await Promise.all([
-			...toAdd.map((personId) => setAssignment(itemId!, personId, true)),
-			...toRemove.map((personId) => setAssignment(itemId!, personId, false))
-		]);
+		const affectedIds = [itemId!, ...repeatedIds];
+		await Promise.all(
+			affectedIds.flatMap((id) => [
+				...toAdd.map((personId) => setAssignment(id, personId, true)),
+				...toRemove.map((personId) => setAssignment(id, personId, false))
+			])
+		);
 
 		showItemModal = false;
 		await loadItems();
@@ -180,13 +203,6 @@
 	}
 
 	let filteredPeople = $derived(people.filter((p) => p.name.toLowerCase().includes(personFilter.toLowerCase())));
-
-	function personNames(ids: number[]) {
-		return ids
-			.map((id) => people.find((p) => p.id === id)?.name)
-			.filter(Boolean)
-			.join(', ');
-	}
 </script>
 
 <div class="card bg-base-100 shadow-sm border border-base-300">
@@ -218,45 +234,18 @@
 			{#if !selectedDayId}
 				<p class="text-sm text-base-content/60">Zuerst einen Tag anlegen.</p>
 			{:else}
-			<div class="overflow-x-auto">
-				<table class="table table-sm">
-					<thead>
-						<tr>
-							<th>Uhrzeit</th>
-							<th>Programmpunkt</th>
-							<th>Ort</th>
-							<th>Personen</th>
-							<th></th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each items as item (item.id)}
-							<tr>
-								<td>{item.time}</td>
-								<td>{item.title}{#if item.teamInfo}<span class="badge badge-ghost badge-sm ml-1">Team-Info</span>{/if}</td>
-								<td>{item.location?.name ?? '—'}</td>
-								<td class="max-w-xs truncate" title={personNames(item.personIds)}>
-									{personNames(item.personIds) || '—'}
-								</td>
-								<td class="flex gap-1 justify-end">
-									<button class="btn btn-ghost btn-xs" onclick={() => openEditItem(item)} aria-label="Bearbeiten">
-										<i class="fa-solid fa-pen"></i>
-									</button>
-									<button class="btn btn-ghost btn-xs text-error" onclick={() => removeItem(item.id)} aria-label="Löschen">
-										<i class="fa-solid fa-trash"></i>
-									</button>
-								</td>
-							</tr>
-						{:else}
-							<tr>
-								<td colspan="5" class="text-base-content/60">
-									{loadingItems ? 'Lädt…' : 'Noch keine Programmpunkte für diesen Tag.'}
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
+			{#if loadingItems}
+				<span class="loading loading-spinner loading-sm"></span>
+			{:else}
+				<ScheduleCalendar
+					{items}
+					{people}
+					editable
+					emptyMessage="Noch keine Programmpunkte für diesen Tag."
+					onEdit={openEditItem}
+					onDelete={removeItem}
+				/>
+			{/if}
 			<button class="btn btn-primary btn-sm w-fit" onclick={openNewItem}>
 				<i class="fa-solid fa-plus"></i> Programmpunkt hinzufügen
 			</button>
@@ -270,12 +259,16 @@
 		<div class="modal-box max-w-2xl">
 			<h3 class="font-bold text-lg mb-4">{editingItem ? 'Programmpunkt bearbeiten' : 'Neuer Programmpunkt'}</h3>
 
-			<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+			<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
 				<fieldset class="fieldset">
-					<legend class="fieldset-legend">Uhrzeit</legend>
+					<legend class="fieldset-legend">Von</legend>
 					<input class="input input-bordered w-full" placeholder="09:00" bind:value={itemTime} />
 				</fieldset>
-				<fieldset class="fieldset sm:col-span-2">
+				<fieldset class="fieldset">
+					<legend class="fieldset-legend">Bis (optional)</legend>
+					<input class="input input-bordered w-full" placeholder="10:30" bind:value={itemEndTime} />
+				</fieldset>
+				<fieldset class="fieldset col-span-2">
 					<legend class="fieldset-legend">Programmpunkt</legend>
 					<input class="input input-bordered w-full" bind:value={itemTitle} />
 				</fieldset>
@@ -288,11 +281,30 @@
 						{/each}
 					</select>
 				</fieldset>
-				<label class="label cursor-pointer gap-2 self-end pb-3">
+				<label class="label cursor-pointer gap-2 self-end pb-3 sm:col-span-2">
 					<input type="checkbox" class="checkbox checkbox-sm" bind:checked={itemTeamInfo} />
 					<span class="label-text">Team-Info anzeigen</span>
 				</label>
 			</div>
+
+			{#if !editingItem && days.length > 1}
+				<div class="mt-3">
+					<span class="text-sm font-semibold">Wiederkehrend – zusätzlich anlegen an:</span>
+					<div class="flex flex-wrap gap-2 mt-1">
+						{#each days.filter((d) => d.id !== selectedDayId) as day (day.id)}
+							<label class="label cursor-pointer gap-2 border border-base-300 rounded-lg px-2 py-1">
+								<input
+									type="checkbox"
+									class="checkbox checkbox-sm"
+									checked={repeatOnDayIds.has(day.id)}
+									onchange={() => toggleRepeatDay(day.id)}
+								/>
+								<span class="label-text">{day.label}</span>
+							</label>
+						{/each}
+					</div>
+				</div>
+			{/if}
 
 			{#if selectedLocation}
 				<div class="mt-3">

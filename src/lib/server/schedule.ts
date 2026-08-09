@@ -201,7 +201,7 @@ export async function deleteDay(id: number): Promise<void> {
 export async function listItems(dayId: number): Promise<ScheduleItem[]> {
 	const pool = await db();
 	const [items] = await pool.query<RowDataPacket[]>(
-		`SELECT si.id, si.day_id, si.time, si.title, si.team_info, si.sort_order,
+		`SELECT si.id, si.day_id, si.time, si.end_time, si.title, si.team_info, si.sort_order,
 		        l.id AS loc_id, l.conference_id AS loc_conference_id, l.name AS loc_name, l.lat AS loc_lat, l.lng AS loc_lng
 		 FROM schedule_items si
 		 LEFT JOIN locations l ON l.id = si.location_id
@@ -226,6 +226,7 @@ export async function listItems(dayId: number): Promise<ScheduleItem[]> {
 		id: i.id,
 		dayId: i.day_id,
 		time: i.time,
+		endTime: i.end_time,
 		title: i.title,
 		locationId: i.loc_id,
 		location: i.loc_id
@@ -240,6 +241,7 @@ export async function listItems(dayId: number): Promise<ScheduleItem[]> {
 interface ItemInput {
 	dayId: number;
 	time: string;
+	endTime: string | null;
 	title: string;
 	locationId: number | null;
 	teamInfo: boolean;
@@ -252,17 +254,28 @@ export async function createItem(input: ItemInput): Promise<number> {
 		[input.dayId]
 	);
 	const [result] = await pool.execute<import('mysql2').ResultSetHeader>(
-		'INSERT INTO schedule_items (day_id, time, title, location_id, team_info, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
-		[input.dayId, input.time, input.title, input.locationId, input.teamInfo, maxOrder]
+		'INSERT INTO schedule_items (day_id, time, end_time, title, location_id, team_info, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
+		[input.dayId, input.time, input.endTime || null, input.title, input.locationId, input.teamInfo, maxOrder]
 	);
 	return result.insertId;
+}
+
+// Wiederkehrende Ereignisse: derselbe Programmpunkt wird 1:1 auf mehreren Tagen
+// angelegt, statt ein eigenes Wiederholungsregel-Modell einzufuehren - passt zum
+// bestehenden "ein Tag = eine Liste von Punkten"-Schema.
+export async function createItemOnDays(dayIds: number[], input: Omit<ItemInput, 'dayId'>): Promise<number[]> {
+	const ids: number[] = [];
+	for (const dayId of dayIds) {
+		ids.push(await createItem({ ...input, dayId }));
+	}
+	return ids;
 }
 
 export async function updateItem(id: number, input: ItemInput): Promise<void> {
 	const pool = await db();
 	await pool.execute(
-		'UPDATE schedule_items SET time = ?, title = ?, location_id = ?, team_info = ? WHERE id = ?',
-		[input.time, input.title, input.locationId, input.teamInfo, id]
+		'UPDATE schedule_items SET time = ?, end_time = ?, title = ?, location_id = ?, team_info = ? WHERE id = ?',
+		[input.time, input.endTime || null, input.title, input.locationId, input.teamInfo, id]
 	);
 }
 
@@ -293,7 +306,8 @@ function formatMessageBody(items: ScheduleItem[], people: Person[], showTeamColu
 			showTeamColumn && item.teamInfo
 				? `(${item.personIds.map((id) => peopleById.get(id)).filter(Boolean).join(',')})`
 				: '';
-		return [item.time || '-', item.title || '-', item.location?.name || '-', ...(showTeamColumn ? [team] : [])];
+		const timeLabel = item.endTime ? `${item.time || '-'}–${item.endTime}` : item.time || '-';
+		return [timeLabel, item.title || '-', item.location?.name || '-', ...(showTeamColumn ? [team] : [])];
 	});
 	return [header.join('\t'), ...rows.map((r) => r.join('\t'))].join('\n');
 }
