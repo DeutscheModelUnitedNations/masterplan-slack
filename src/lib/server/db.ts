@@ -2,15 +2,19 @@ import mysql from 'mysql2/promise';
 import type { RowDataPacket } from 'mysql2';
 import { env } from '$env/dynamic/private';
 
-const pool = mysql.createPool({
-	host: env.DB_HOST || 'localhost',
-	port: Number(env.DB_PORT || 3306),
-	user: env.DB_USER || 'masterplan',
-	password: env.DB_PASSWORD || '',
-	database: env.DB_NAME || 'masterplan',
-	waitForConnections: true,
-	connectionLimit: 10
-});
+// DATABASE_URL (mysql://user:pass@host:port/db) gewinnt, falls gesetzt -
+// sonst einzelne DB_*-Variablen (z.B. fuer docker-compose.yaml).
+const pool = env.DATABASE_URL
+	? mysql.createPool(env.DATABASE_URL)
+	: mysql.createPool({
+			host: env.DB_HOST || 'localhost',
+			port: Number(env.DB_PORT || 3306),
+			user: env.DB_USER || 'masterplan',
+			password: env.DB_PASSWORD || '',
+			database: env.DB_NAME || 'masterplan',
+			waitForConnections: true,
+			connectionLimit: 10
+		});
 
 // Schema wird beim ersten Zugriff einmalig sichergestellt - kein separates
 // Migrations-Tool noetig fuer eine Handvoll Tabellen.

@@ -141,7 +141,8 @@ ausschließlich als Umgebungsvariable setzen.
 | `TEST_CHANNEL_MUNBW` / `_MUNBB` / `_MUNSH` / `_DMUN` | Channel-ID für Testversand je Workspace |
 | `AUTH_EMAIL_HEADER` | Header mit der Login-E-Mail (Default `X-Forwarded-User`) |
 | `ADMIN_EMAILS` | Kommagetrennte Liste von E-Mails mit Admin-Rechten |
-| `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME` | MySQL-Zugangsdaten |
+| `DATABASE_URL` | MySQL-Verbindung als URL (`mysql://user:pass@host:port/db`), hat Vorrang vor den einzelnen `DB_*`-Variablen |
+| `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME` | MySQL-Zugangsdaten (Alternative zu `DATABASE_URL`) |
 | `TZ` | Zeitzone des Containers (`Europe/Berlin`) |
 
 ---
