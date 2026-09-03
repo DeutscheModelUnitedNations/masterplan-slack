@@ -221,6 +221,14 @@
 		myDays = data.days;
 		myLoaded = true;
 	}
+
+	// ---- Admins: probeweise die normale Nutzeransicht anzeigen ---------------
+	let viewAsUser = $state(false);
+	let showUserView = $derived(!data.isAdmin || viewAsUser);
+
+	$effect(() => {
+		if (viewAsUser && !myLoaded) loadMySchedule();
+	});
 </script>
 
 <svelte:head>
@@ -240,12 +248,22 @@
 		{#if data.email}
 			<span class="text-sm text-base-content/60 mr-2">{data.email}</span>
 		{/if}
+		{#if data.isAdmin}
+			<button
+				class="btn btn-ghost btn-sm gap-2 mr-2"
+				onclick={() => (viewAsUser = !viewAsUser)}
+				aria-pressed={viewAsUser}
+			>
+				<i class="fa-solid {viewAsUser ? 'fa-user-shield' : 'fa-user'}"></i>
+				{viewAsUser ? 'Zur Admin-Ansicht' : 'Als Nutzer ansehen'}
+			</button>
+		{/if}
 		<button class="btn btn-ghost btn-circle" onclick={() => theme.toggle()} aria-label="Hell/Dunkel umschalten">
 			<i class="fa-solid {theme.resolved === 'dark' ? 'fa-sun' : 'fa-moon'}"></i>
 		</button>
 	</header>
 
-	{#if !data.isAdmin}
+	{#if showUserView}
 		<!-- ---- Nicht-Admin: read-only eigener Zeitplan ---------------------------- -->
 		<div class="max-w-3xl mx-auto p-4 flex flex-col gap-4">
 			<div class="card bg-base-100 shadow-sm border border-base-300">
